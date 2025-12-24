@@ -1,0 +1,25 @@
+{
+  "name": "sufficius-ecommerce-back",
+  "version": "1.0.0",
+  "description": "- Para se tornar um comprador, o usuário deve estar cadastrado.\r - Para estar cadastrado deve informar: nome, senha, número de telefone, email.\r - O cadastro é finalizado quando o email e o número de telefone forem verificados.\r - Dados sensíveis do usuário devem ser armazenados de forma segura.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sufficius/sufficius-Ecommerce-back.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Sufficius/sufficius-Ecommerce-back/issues"
+  },
+  "homepage": "https://github.com/Sufficius/sufficius-Ecommerce-back#readme",
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@fastify/jwt": "^7.2.4",
+    "@fastify/multipart": "^8.3.1",
+    "@fastify/swagger": "^8.15.0",
+    "
