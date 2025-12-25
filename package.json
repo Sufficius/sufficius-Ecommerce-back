@@ -4,7 +4,7 @@
   "description": "- Para se tornar um comprador, o usuário deve estar cadastrado.\r - Para estar cadastrado deve informar: nome, senha, número de telefone, email.\r - O cadastro é finalizado quando o email e o número de telefone forem verificados.\r - Dados sensíveis do usuário devem ser armazenados de forma segura.",
   "main": "index.js",
   "scripts": {
-        "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -24,6 +24,8 @@
     "@fastify/multipart": "^8.3.1",
     "@fastify/swagger": "^8.15.0",
     "@fastify/swagger-ui": "^3.1.0",
+    "@prisma/adapter-mariadb": "^7.2.0",
+    "@prisma/adapter-planetscale": "^7.2.0",
     "@prisma/client": "^5.7.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^2.4.3",
@@ -31,6 +33,7 @@
     "dotenv": "^16.3.1",
     "fastify": "^4.29.1",
     "google-auth-library": "^10.5.0",
+    "mysql2": "^3.16.0",
     "nodemailer": "^7.0.12",
     "pino-pretty": "^13.1.3",
     "winston": "^3.19.0",

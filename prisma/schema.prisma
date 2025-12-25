@@ -1,0 +1,377 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Enum para status do usuário
+enum StatusUsuario {
+  PENDENTE
+  ATIVO
+  SUSPENSO
+  DELETADO
+}
+
+// Enum para status do pedido
+enum StatusPedido {
+  PAGAMENTO_PENDENTE
+  PROCESSANDO
+  CONFIRMADO
+  PREPARANDO
+  ENVIADO
+  ENTREGUE
+  CANCELADO
+  DEVOLVIDO
+  REEMBOLSADO
+}
+
+// Enum para status do pagamento
+enum StatusPagamento {
+  PENDENTE
+  PROCESSANDO
+  CONCLUIDO
+  FALHOU
+  REEMBOLSADO
+  CANCELADO
+}
+
+// Enum para tipos de usuário
+enum TipoUsuario {
+  CLIENTE
+  ADMIN
+  GERENTE
+}
+
+// ============== TABELAS EM PORTUGUÊS ==============
+
+// TABELA: Usuário
+model Usuario {
+  id                 String        @id @default(uuid())
+  email              String        @unique
+  telefone           String        @unique
+  nome               String
+  senhaHash          String
+  emailVerificado    Boolean       @default(false)
+  telefoneVerificado Boolean       @default(false)
+  status             StatusUsuario @default(PENDENTE)
+  tipo               TipoUsuario   @default(CLIENTE)
+
+  // Relacionamentos
+  enderecos         Endereco[]
+  carrinho          Carrinho?
+  pedidos           Pedido[]
+  avaliacoes        Avaliacao[]
+  devolucoes        Devolucao[]
+  tokensVerificacao TokenVerificacao[]
+
+  // Metadata
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+  ultimoLogin  DateTime?
+
+  @@unique([email, telefone])
+  @@index([email])
+  @@index([telefone])
+}
+
+// TABELA: Endereço
+model Endereco {
+  id        String  @id @default(uuid())
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  rua         String
+  numero      String
+  complemento String?
+  bairro      String
+  cidade      String
+  estado      String
+  cep         String
+  pais        String  @default("Brasil")
+  padrao      Boolean @default(false)
+
+  pedidos Pedido[]
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([usuarioId])
+}
+
+// TABELA: Produto
+model Produto {
+  id                 String    @id @default(uuid())
+  nome               String
+  descricao          String?
+  preco              Decimal   @db.Decimal(10, 2)
+  precoDesconto      Decimal?  @db.Decimal(10, 2)
+  percentualDesconto Float?    @default(0)
+  descontoAte        DateTime?
+
+  categorias Categoria[]     @relation("ProdutoCategorias")
+  imagens    ImagemProduto[]
+
+  estoque    Int     @default(0)
+  sku        String  @unique
+  ativo      Boolean @default(true)
+  emDestaque Boolean @default(false)
+
+  itensCarrinho ItemCarrinho[]
+  itensPedido   ItemPedido[]
+  avaliacoes    Avaliacao[]
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([nome])
+  @@index([sku])
+  @@index([ativo])
+  @@index([estoque])
+}
+
+// TABELA: Categoria
+model Categoria {
+  id        String      @id @default(uuid())
+  nome      String      @unique
+  descricao String?
+  slug      String      @unique
+  paiId     String?
+  pai       Categoria?  @relation("CategoriaFilhos", fields: [paiId], references: [id])
+  filhos    Categoria[] @relation("CategoriaFilhos")
+  produtos  Produto[]   @relation("ProdutoCategorias")
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([slug])
+}
+
+// TABELA: Imagem do Produto
+model ImagemProduto {
+  id        String  @id @default(uuid())
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  url       String
+  textoAlt  String?
+  principal Boolean @default(false)
+  ordem     Int     @default(0)
+
+  criadoEm DateTime @default(now())
+
+  @@unique([produtoId, principal])
+  @@index([produtoId])
+}
+
+// TABELA: Carrinho
+model Carrinho {
+  id        String  @id @default(uuid())
+  usuarioId String  @unique
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  itens ItemCarrinho[]
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+}
+
+// TABELA: Item do Carrinho
+model ItemCarrinho {
+  id         String   @id @default(uuid())
+  carrinhoId String
+  carrinho   Carrinho @relation(fields: [carrinhoId], references: [id], onDelete: Cascade)
+
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id])
+
+  quantidade      Int     @default(1)
+  precoNoCarrinho Decimal @db.Decimal(10, 2)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([carrinhoId, produtoId])
+  @@index([carrinhoId])
+  @@index([produtoId])
+}
+
+// TABELA: Pedido
+model Pedido {
+  id           String  @id @default(uuid())
+  numeroPedido String  @unique
+  usuarioId    String
+  usuario      Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  enderecoId String
+  endereco   Endereco @relation(fields: [enderecoId], references: [id])
+
+  itens      ItemPedido[]
+  pagamentos Pagamento[]
+  devolucoes Devolucao[] // ✅ CORREÇÃO: Relação adicionada
+
+  status StatusPedido @default(PAGAMENTO_PENDENTE)
+
+  // Valores
+  subtotal Decimal @db.Decimal(10, 2)
+  frete    Decimal @db.Decimal(10, 2)
+  imposto  Decimal @db.Decimal(10, 2)
+  desconto Decimal @default(0) @db.Decimal(10, 2)
+  total    Decimal @db.Decimal(10, 2)
+
+  // Entrega
+  codigoRastreio  String?
+  metodoEnvio     String
+  entregaEstimada DateTime?
+  entregueEm      DateTime?
+
+  // Metadata
+  observacoes  String?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  historicoStatus HistoricoStatusPedido[]
+
+  @@index([usuarioId])
+  @@index([numeroPedido])
+  @@index([status])
+  @@index([criadoEm])
+}
+
+// TABELA: Item do Pedido
+model ItemPedido {
+  id       String @id @default(uuid())
+  pedidoId String
+  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id])
+
+  quantidade    Int
+  precoUnitario Decimal @db.Decimal(10, 2)
+  precoTotal    Decimal @db.Decimal(10, 2)
+
+  criadoEm   DateTime    @default(now())
+  devolucoes Devolucao[] // ✅ CORREÇÃO: Relação adicionada
+
+  @@index([pedidoId])
+  @@index([produtoId])
+}
+
+// TABELA: Pagamento
+model Pagamento {
+  id       String @id @default(uuid())
+  pedidoId String
+  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  metodoPagamento  String
+  gatewayPagamento String
+  gatewayId        String?
+
+  status StatusPagamento @default(PENDENTE)
+  valor  Decimal         @db.Decimal(10, 2)
+
+  // Cartão
+  ultimosQuatro String?
+  bandeira      String?
+
+  // Metadata
+  metadata     Json?
+  processadoEm DateTime?
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  @@index([pedidoId])
+  @@index([gatewayId])
+  @@index([status])
+}
+
+// TABELA: Avaliação
+model Avaliacao {
+  id        String  @id @default(uuid())
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id])
+
+  nota       Int     @default(5)
+  comentario String?
+
+  compraVerificada Boolean @default(false)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([usuarioId, produtoId])
+  @@index([produtoId])
+  @@index([usuarioId])
+}
+
+// TABELA: Devolução
+model Devolucao {
+  id        String  @id @default(uuid())
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  pedidoId String
+  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  itemPedidoId String
+  itemPedido   ItemPedido @relation(fields: [itemPedidoId], references: [id], onDelete: Cascade)
+
+  motivo    String
+  descricao String?
+
+  status String @default("PENDENTE")
+
+  // Prazo de 30 dias
+  solicitadoEm DateTime  @default(now())
+  aprovadoEm   DateTime?
+  concluidoEm  DateTime?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([usuarioId])
+  @@index([pedidoId])
+  @@index([status])
+}
+
+// TABELA: Token de Verificação
+model TokenVerificacao {
+  id        String  @id @default(uuid())
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  token    String   @unique
+  tipo     String
+  expiraEm DateTime
+
+  usado   Boolean   @default(false)
+  usadoEm DateTime?
+
+  criadoEm DateTime @default(now())
+
+  @@index([usuarioId])
+  @@index([token])
+}
+
+// TABELA: Histórico de Status do Pedido
+model HistoricoStatusPedido {
+  id       String @id @default(uuid())
+  pedidoId String
+  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  status      StatusPedido
+  observacoes String?
+
+  alteradoEm  DateTime @default(now())
+  alteradoPor String?
+
+  @@index([pedidoId])
+  @@index([alteradoEm])
+}

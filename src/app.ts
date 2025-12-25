@@ -82,6 +82,8 @@ app.register(swaggerUI, {
     }
 });
 
+app.register(authRoutes, {prefix: "/auth"});
+
 
 
 app.get('/', async ()=> {
