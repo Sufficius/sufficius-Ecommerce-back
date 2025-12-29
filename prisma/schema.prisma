@@ -59,6 +59,8 @@ model Usuario {
   telefoneVerificado Boolean       @default(false)
   status             StatusUsuario @default(PENDENTE)
   tipo               TipoUsuario   @default(CLIENTE)
+  resetToken         String?
+  resetTokenExpiry   DateTime?
 
   // Relacionamentos
   enderecos         Endereco[]
@@ -67,6 +69,8 @@ model Usuario {
   avaliacoes        Avaliacao[]
   devolucoes        Devolucao[]
   tokensVerificacao TokenVerificacao[]
+  googleId          String?
+  foto              String?
 
   // Metadata
   criadoEm     DateTime  @default(now())

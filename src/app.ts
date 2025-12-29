@@ -4,6 +4,8 @@ import multipart from "@fastify/multipart";
 import swagger from "@fastify/swagger";
 import swaggerUI from "@fastify/swagger-ui";
 import * as dotenv from 'dotenv';
+import authRoutes from "./modules/auth/auth.routes";
+import usuarioRoutes from "./modules/usuarios/usuarios.routes";
 
 
 
@@ -52,6 +54,14 @@ app.register(jwt, {
     secret: process.env.JWT_SECRET
 });
 
+app.register(multipart, {
+    limits: {
+        fileSize: 10 * 1024 * 1024,
+        files: 5
+    }
+});
+
+
 app.register(swagger, {
     swagger: {
         info: {
@@ -83,8 +93,17 @@ app.register(swaggerUI, {
 });
 
 app.register(authRoutes, {prefix: "/auth"});
+app.register(usuarioRoutes, {prefix: '/usuarios'});
 
 
+app.get('/health', async () => {
+    return {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        version: process.env.API_VERSION || '1.0.0'
+    };
+});
 
 app.get('/', async ()=> {
     return {

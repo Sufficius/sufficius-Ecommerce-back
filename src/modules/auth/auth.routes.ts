@@ -1,31 +1,32 @@
+// src/routes.routes.ts
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { OAuth2Client } from "google-auth-library";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { logger } from "@/utils/logger";
-import { sendResetCodeEmail } from "@/services/email.service";
-import { generateToken, verifyToken } from "@/utils/jwt";
-import { 
-  authLimiter, 
-  resetPasswordLimiter, 
-  googleAuthLimiter 
-} from "@/middleware/rateLimit";
-import { prisma } from "@/config/prisma";
+import { logger } from "../../utils/logger";
+import { sendResetCodeEmail } from "../../services/nodemailer";
+import { generateToken, verifyToken } from "../../utils/jwt";
+import {
+  authLimiter,
+  resetPasswordLimiter,
+  googleAuthLimiter
+} from "../../middleware/rateLimit";
+import { prisma } from "../../config/prisma";
 
 // Schemas de validação
 const registerSchema = z.object({
   nome: z.string().min(3).max(100),
   email: z.string().email(),
-  telefone: z.string().optional(),
+  telefone: z.string(),
   cpf: z.string().optional(),
-  role: z.enum(["CLIENTE", "ADMIN", "VENDEDOR"]).default("CLIENTE")
+  tipo: z.enum(["CLIENTE", "ADMIN", "GERENTE"]).default("CLIENTE")
 });
 
 const loginSchema = z.object({
   email: z.string().email().optional(),
   cpf: z.string().optional(),
-  password: z.string().min(8).optional()
+  senha: z.string().min(8).optional()
 }).refine(data => data.email || data.cpf, {
   message: "Email ou CPF é obrigatório"
 });
@@ -35,12 +36,12 @@ const forgotPasswordSchema = z.object({
 });
 
 const resetPasswordSchema = z.object({
-  code: z.string().length(6),
-  password: z.string().min(8),
-  confirmPassword: z.string().min(8)
-}).refine(data => data.password === data.confirmPassword, {
-  message: "As s?.senhaHashs não coincidem",
-  path: ["confirmPassword"]
+  codigo: z.string().length(6),
+  senha: z.string().min(8),
+  confirmarSenha: z.string().min(8)
+}).refine(data => data.senha === data.confirmarSenha, {
+  message: "As senhas não coincidem",
+  path: ["confirmarSenha"]
 });
 
 const googleAuthSchema = z.object({
@@ -49,10 +50,10 @@ const googleAuthSchema = z.object({
 
 // Interfaces
 interface UserPayload {
-  id: number;
+  id: string;
   email: string;
   nome: string;
-  role: string;
+  tipo: string;
 }
 
 interface GoogleUserInfo {
@@ -68,15 +69,15 @@ let googleOAuthClient: OAuth2Client | null = null;
 
 const initGoogleOAuthClient = (): OAuth2Client | null => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  
+
   if (!clientId) {
-    logger.warn({ 
+    logger.warn({
       message: "Google OAuth Client não configurado",
       action: "Adicionar GOOGLE_CLIENT_ID ao .env"
     });
     return null;
   }
-  
+
   return new OAuth2Client(clientId);
 };
 
@@ -94,38 +95,39 @@ const AuthService = {
   async findOrCreateGoogleUser(googleUser: GoogleUserInfo) {
     try {
       // Buscar por email
-      let user = await prisma.usuario.findUnique({
+      let usuario = await prisma.usuario.findUnique({
         where: { email: googleUser.email }
       });
 
-      if (!user) {
+      if (!usuario) {
         // Criar novo usuário
-        user = await prisma.usuario.create({
+        usuario = await prisma.usuario.create({
           data: {
             nome: googleUser.name,
             email: googleUser.email,
-            s?.senhaHash: await bcrypt.hash(generateRandomPassword(), 12),
+            senhaHash: await bcrypt.hash(generateRandomPassword(), 12),
             googleId: googleUser.sub,
-            role: "CLIENTE",
+            tipo: "CLIENTE",
             emailVerificado: googleUser.email_verified,
-            foto: googleUser.picture
+            foto: googleUser.picture,
+            telefone: ""
           }
         });
-        
+
         logger.info({
           message: "Novo usuário Google criado",
-          userId: user.id,
-          email: user.email
+          usuarioId: usuario.id,
+          email: usuario.email
         });
-      } else if (user.googleId !== googleUser.sub) {
+      } else if (usuario.googleId !== googleUser.sub) {
         // Atualizar googleId se necessário
         await prisma.usuario.update({
-          where: { id: user.id },
+          where: { id: usuario.id },
           data: { googleId: googleUser.sub }
         });
       }
 
-      return user;
+      return usuario;
     } catch (error) {
       logger.error({
         message: "Erro ao processar usuário Google",
@@ -136,47 +138,51 @@ const AuthService = {
     }
   },
 
-  async createUser(data: z.infer<typeof registerSchema>) {
+  async createUsuario(data: z.infer<typeof registerSchema>) {
     const hashedPassword = await bcrypt.hash(generateRandomPassword(), 12);
-    
+
     return await prisma.usuario.create({
       data: {
-        ...data,
-        s?.senhaHash: hashedPassword
+        nome: data.nome,
+        email: data.email,
+        telefone: data.telefone,
+        tipo: data.tipo,
+        senhaHash: hashedPassword,
+        status: "PENDENTE" // Status inicial
       },
       select: {
         id: true,
         nome: true,
         email: true,
-        role: true,
-        createdAt: true
+        tipo: true,
+        criadoEm: true
       }
     });
   },
 
-  async validateCredentials(email?: string, cpf?: string, password?: string) {
-    const whereClause = email ? { email } : { cpf };
-    
-    const user = await prisma.usuario.findUnique({
-      where: whereClause
+  async validateCredentials(email?: string, senha?: string) {
+    const usuario = await prisma.usuario.findUnique({
+      where: {
+        email: email
+      }
     });
 
-    if (!user) {
+    if (!usuario) {
       return null;
     }
 
-    if (password && user?.senhaHash) {
-      const isValid = await bcrypt.compare(password, user?.senhaHash);
+    if (senha && usuario.senhaHash) {
+      const isValid = await bcrypt.compare(senha, usuario.senhaHash);
       if (!isValid) return null;
     }
 
-    return user;
+    return usuario;
   },
 
   async processPasswordReset(email: string) {
-    const user = await prisma.usuario.findUnique({ where: { email } });
-    
-    if (!user) {
+    const usuario = await prisma.usuario.findUnique({ where: { email } });
+
+    if (!usuario) {
       // Não revelar que o email não existe por segurança
       logger.debug({
         message: "Solicitação de reset para email não cadastrado",
@@ -189,54 +195,55 @@ const AuthService = {
     const expiryDate = new Date(Date.now() + 3600000); // 1 hora
 
     await prisma.usuario.update({
-      where: { id: user.id },
+      where: { id: usuario.id },
       data: {
         resetToken: resetCode,
         resetTokenExpiry: expiryDate
       }
     });
 
-    await sendResetCodeEmail(email, resetCode, user.nome);
+    await sendResetCodeEmail(email, resetCode, usuario.nome);
 
     logger.info({
       message: "Código de reset enviado",
-      userId: user.id,
+      usuarioId: usuario.id,
       email
     });
 
     return true;
   },
 
-  async resetPassword(code: string, newPassword: string) {
-    const user = await prisma.usuario.findFirst({
+  async resetPassword(codigo: string, novaSenha: string) {
+    const usuario = await prisma.usuario.findFirst({
       where: {
-        resetToken: code,
+        resetToken: codigo,
         resetTokenExpiry: { gt: new Date() }
       }
     });
 
-    if (!user) {
+    if (!usuario) {
       throw new Error("Código inválido ou expirado");
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    const hashedPassword = await bcrypt.hash(novaSenha, 12);
 
     await prisma.usuario.update({
-      where: { id: user.id },
+      where: { id: usuario.id },
       data: {
-        s?.senhaHash: hashedPassword,
+        senhaHash: hashedPassword,
         resetToken: null,
         resetTokenExpiry: null,
-        ultimoLogin: new Date()
+        ultimoLogin: new Date(),
+        status: "ATIVO" // Ativar conta ao resetar senha
       }
     });
 
     logger.info({
-      message: "s?.senhaHash redefinida com sucesso",
-      userId: user.id
+      message: "Senha redefinida com sucesso",
+      usuarioId: usuario.id
     });
 
-    return user;
+    return usuario;
   }
 };
 
@@ -244,7 +251,7 @@ const AuthService = {
 const handleGoogleAuth = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     const { token } = googleAuthSchema.parse(request.body);
-    
+
     if (!googleOAuthClient) {
       googleOAuthClient = initGoogleOAuthClient();
       if (!googleOAuthClient) {
@@ -278,38 +285,38 @@ const handleGoogleAuth = async (request: FastifyRequest, reply: FastifyReply) =>
     };
 
     // Encontrar ou criar usuário
-    const user = await AuthService.findOrCreateGoogleUser(googleUser);
+    const usuario = await AuthService.findOrCreateGoogleUser(googleUser);
 
     // Gerar JWT
     const authToken = generateToken({
-      id: user.id,
-      email: user.email,
-      nome: user.nome,
-      role: user.role
+      id: usuario.id,
+      email: usuario.email,
+      nome: usuario.nome,
+      tipo: usuario.tipo
     });
 
     // Registrar login
     await prisma.usuario.update({
-      where: { id: user.id },
+      where: { id: usuario.id },
       data: { ultimoLogin: new Date() }
     });
 
     logger.info({
       message: "Login Google bem-sucedido",
-      userId: user.id,
-      email: user.email
+      usuarioId: usuario.id,
+      email: usuario.email
     });
 
     return reply.send({
       success: true,
       message: "Autenticação realizada com sucesso",
       token: authToken,
-      user: {
-        id: user.id,
-        nome: user.nome,
-        email: user.email,
-        role: user.role,
-        foto: user.foto
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        tipo: usuario.tipo,
+        foto: usuario.foto
       },
       expiresIn: "7d"
     });
@@ -340,41 +347,42 @@ const handleRegister = async (request: FastifyRequest, reply: FastifyReply) => {
     const data = registerSchema.parse(request.body);
 
     // Verificar unicidade
-    const existingUser = await prisma.usuario.findFirst({
+    const existingUsuario = await prisma.usuario.findFirst({
       where: {
         OR: [
           { email: data.email },
-          ...(data.cpf ? [{ cpf: data.cpf }] : [])
+          ...(data.telefone ? [{ telefone: data.telefone }] : [])
         ]
       }
     });
 
-    if (existingUser) {
-      const conflictField = existingUser.email === data.email ? "email" : "cpf";
+    if (existingUsuario) {
+      const conflictField = existingUsuario.email === data.email ? "email" :
+        existingUsuario.telefone === data.telefone;
       return reply.status(409).send({
         success: false,
-        message: `${conflictField === 'email' ? 'Email' : 'CPF'} já está em uso`,
+        message: `${conflictField === 'email' ? 'Email' : 'Telefone'} já está em uso`,
         field: conflictField
       });
     }
 
     // Criar usuário
-    const user = await AuthService.createUser(data);
+    const usuario = await AuthService.createUsuario(data);
 
     // Gerar token de boas-vindas (opcional)
-    const welcomeToken = generateToken({ id: user.id, email: user.email }, "24h");
+    const welcomeToken = generateToken({ id: usuario.id, email: usuario.email }, "24h");
 
     logger.info({
       message: "Novo usuário registrado",
-      userId: user.id,
-      email: user.email,
-      role: user.role
+      usuarioId: usuario.id,
+      email: usuario.email,
+      tipo: usuario.tipo
     });
 
     return reply.status(201).send({
       success: true,
       message: "Usuário registrado com sucesso",
-      user,
+      usuario,
       welcomeToken,
       nextSteps: ["Verificar email", "Completar perfil"]
     });
@@ -402,11 +410,11 @@ const handleRegister = async (request: FastifyRequest, reply: FastifyReply) => {
 
 const handleLogin = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { email, cpf, password } = loginSchema.parse(request.body);
+    const { email, senha } = loginSchema.parse(request.body);
 
-    const user = await AuthService.validateCredentials(email, cpf, password);
-    
-    if (!user) {
+    const usuario = await AuthService.validateCredentials(email, senha);
+
+    if (!usuario) {
       return reply.status(401).send({
         success: false,
         message: "Credenciais inválidas"
@@ -414,53 +422,51 @@ const handleLogin = async (request: FastifyRequest, reply: FastifyReply) => {
     }
 
     // Verificar se conta está ativa
-    if (user.status === "INATIVO") {
+    if (usuario.status === "SUSPENSO") {
       return reply.status(403).send({
         success: false,
-        message: "Conta desativada. Entre em contato com o suporte."
+        message: "Conta suspensa. Entre em contato com o suporte."
+      });
+    }
+
+    if (usuario.status === "PENDENTE") {
+      return reply.status(403).send({
+        success: false,
+        message: "Conta pendente de verificação. Verifique seu email."
       });
     }
 
     // Gerar token
     const authToken = generateToken({
-      id: user.id,
-      email: user.email,
-      nome: user.nome,
-      role: user.role
+      id: usuario.id,
+      email: usuario.email,
+      nome: usuario.nome,
+      tipo: usuario.tipo
     });
 
     // Atualizar último login
     await prisma.usuario.update({
-      where: { id: user.id },
+      where: { id: usuario.id },
       data: { ultimoLogin: new Date() }
-    });
-
-    // Registrar log de acesso
-    await prisma.logAcesso.create({
-      data: {
-        usuarioId: user.id,
-        ip: request.ip,
-        userAgent: request.headers["user-agent"] || ""
-      }
     });
 
     logger.info({
       message: "Login bem-sucedido",
-      userId: user.id,
-      email: user.email,
-      method: password ? "password" : "cpf"
+      usuarioId: usuario.id,
+      email: usuario.email,
+      method: senha ? "senha" : "cpf"
     });
 
     return reply.send({
       success: true,
       message: "Login realizado com sucesso",
       token: authToken,
-      user: {
-        id: user.id,
-        nome: user.nome,
-        email: user.email,
-        role: user.role,
-        foto: user.foto
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        tipo: usuario.tipo,
+        foto: usuario.foto
       },
       expiresIn: "7d"
     });
@@ -489,7 +495,7 @@ const handleLogin = async (request: FastifyRequest, reply: FastifyReply) => {
 const handleForgotPassword = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     const { email } = forgotPasswordSchema.parse(request.body);
-    
+
     await AuthService.processPasswordReset(email);
 
     return reply.send({
@@ -520,26 +526,26 @@ const handleForgotPassword = async (request: FastifyRequest, reply: FastifyReply
 
 const handleResetPassword = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const { code, password } = resetPasswordSchema.parse(request.body);
-    
-    const user = await AuthService.resetPassword(code, password);
+    const { codigo, senha } = resetPasswordSchema.parse(request.body);
+
+    const usuario = await AuthService.resetPassword(codigo, senha);
 
     // Gerar novo token para login automático
     const authToken = generateToken({
-      id: user.id,
-      email: user.email,
-      nome: user.nome,
-      role: user.role
+      id: usuario.id,
+      email: usuario.email,
+      nome: usuario.nome,
+      tipo: usuario.tipo
     });
 
     return reply.send({
       success: true,
-      message: "s?.senhaHash redefinida com sucesso",
+      message: "Senha redefinida com sucesso",
       token: authToken,
-      user: {
-        id: user.id,
-        nome: user.nome,
-        email: user.email
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email
       }
     });
 
@@ -566,56 +572,56 @@ const handleResetPassword = async (request: FastifyRequest, reply: FastifyReply)
 
     return reply.status(500).send({
       success: false,
-      message: "Erro ao redefinir s?.senhaHash"
+      message: "Erro ao redefinir senha"
     });
   }
 };
 
 const handleMe = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const userPayload = request.user as UserPayload;
+    const usuarioPayload = request.user as UserPayload;
 
-    const user = await prisma.usuario.findUnique({
-      where: { id: userPayload.id },
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: usuarioPayload.id },
       select: {
         id: true,
         nome: true,
         email: true,
         telefone: true,
-        cpf: true,
-        role: true,
+        tipo: true,
         foto: true,
         emailVerificado: true,
-        createdAt: true,
+        criadoEm: true,
         ultimoLogin: true,
         enderecos: {
           select: {
             id: true,
-            logradouro: true,
+            rua: true,
             numero: true,
             complemento: true,
             bairro: true,
             cidade: true,
             estado: true,
             cep: true,
-            principal: true
+            pais: true,
+            padrao: true
           }
         },
         pedidos: {
           take: 5,
-          orderBy: { createdAt: 'desc' },
+          orderBy: { criadoEm: 'desc' },
           select: {
             id: true,
-            codigo: true,
+            numeroPedido: true,
             status: true,
             total: true,
-            createdAt: true
+            criadoEm: true
           }
         }
       }
     });
 
-    if (!user) {
+    if (!usuario) {
       return reply.status(404).send({
         success: false,
         message: "Usuário não encontrado"
@@ -624,13 +630,13 @@ const handleMe = async (request: FastifyRequest, reply: FastifyReply) => {
 
     return reply.send({
       success: true,
-      user
+      usuario
     });
 
   } catch (error: any) {
     logger.error({
       message: "Erro ao buscar dados do usuário",
-      userId: (request.user as UserPayload)?.id,
+      usuarioId: (request.user as UserPayload)?.id,
       error: error.message
     });
 
@@ -643,14 +649,14 @@ const handleMe = async (request: FastifyRequest, reply: FastifyReply) => {
 
 const handleRefreshToken = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
-    const userPayload = request.user as UserPayload;
+    const usuarioPayload = request.user as UserPayload;
 
-    const user = await prisma.usuario.findUnique({
-      where: { id: userPayload.id },
-      select: { id: true, email: true, nome: true, role: true, status: true }
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: usuarioPayload.id },
+      select: { id: true, email: true, nome: true, tipo: true, status: true }
     });
 
-    if (!user || user.status !== "ATIVO") {
+    if (!usuario || usuario.status !== "ATIVO") {
       return reply.status(401).send({
         success: false,
         message: "Usuário não autorizado"
@@ -658,20 +664,20 @@ const handleRefreshToken = async (request: FastifyRequest, reply: FastifyReply) 
     }
 
     const newToken = generateToken({
-      id: user.id,
-      email: user.email,
-      nome: user.nome,
-      role: user.role
+      id: usuario.id,
+      email: usuario.email,
+      nome: usuario.nome,
+      tipo: usuario.tipo
     });
 
     return reply.send({
       success: true,
       token: newToken,
-      user: {
-        id: user.id,
-        nome: user.nome,
-        email: user.email,
-        role: user.role
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        tipo: usuario.tipo
       },
       expiresIn: "7d"
     });
@@ -692,20 +698,21 @@ const handleRefreshToken = async (request: FastifyRequest, reply: FastifyReply) 
 const handleLogout = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     const token = request.headers.authorization?.replace("Bearer ", "");
-    
+
     if (token) {
       // Em produção, você pode adicionar o token a uma blacklist
-      await prisma.tokenBlacklist.create({
-        data: {
-          token,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 dias
-        }
-      });
+      // Crie uma tabela TokenBlacklist no seu schema se necessário
+      // await prisma.tokenBlacklist.create({
+      //   data: {
+      //     token,
+      //     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 dias
+      //   }
+      // });
     }
 
     logger.info({
       message: "Logout realizado",
-      userId: (request.user as UserPayload)?.id
+      usuarioId: (request.user as UserPayload)?.id
     });
 
     return reply.send({
@@ -730,18 +737,18 @@ const handleLogout = async (request: FastifyRequest, reply: FastifyReply) => {
 const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     await request.jwtVerify();
-    
-    // Verificar se token está na blacklist
-    const token = request.headers.authorization?.replace("Bearer ", "");
-    if (token) {
-      const blacklisted = await prisma.tokenBlacklist.findUnique({
-        where: { token }
-      });
-      
-      if (blacklisted) {
-        throw new Error("Token inválido");
-      }
-    }
+
+    // Verificar se token está na blacklist (se implementar)
+    // const token = request.headers.authorization?.replace("Bearer ", "");
+    // if (token) {
+    //   const blacklisted = await prisma.tokenBlacklist.findUnique({
+    //     where: { token }
+    //   });
+    //   
+    //   if (blacklisted) {
+    //     throw new Error("Token inválido");
+    //   }
+    // }
   } catch (error) {
     return reply.status(401).send({
       success: false,
@@ -753,59 +760,90 @@ const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
 // Configuração das rotas
 export default async function authRoutes(app: FastifyInstance) {
   // Google OAuth
-  app.post("/auth/google", 
-    { preHandler: [googleAuthLimiter] }, 
+  app.post("/google",
+    { preHandler: [googleAuthLimiter.middleware()] },
     handleGoogleAuth
   );
 
   // Registro
-  app.post("/auth/register", 
-    { preHandler: [authLimiter] }, 
+  app.post("/register",
+    { preHandler: [authLimiter.middleware()] },
     handleRegister
   );
 
   // Login
-  app.post("/auth/login", 
-    { preHandler: [authLimiter] }, 
+  app.post("/login",
+    { preHandler: [authLimiter.middleware()] },
     handleLogin
   );
 
-  // Esqueci s?.senhaHash
-  app.post("/auth/forgot-password", 
-    { preHandler: [resetPasswordLimiter] }, 
+  // Esqueci senha
+  app.post("/forgot-password",
+    { preHandler: [resetPasswordLimiter.middleware()] },
     handleForgotPassword
   );
 
-  // Resetar s?.senhaHash
-  app.post("/auth/reset-password", 
-    { preHandler: [resetPasswordLimiter] }, 
+  // Resetar senha
+  app.post("/reset-password",
+    { preHandler: [resetPasswordLimiter.middleware()] },
     handleResetPassword
   );
 
   // Perfil do usuário
-  app.get("/auth/me", 
-    { preHandler: [authenticate] }, 
+  app.get("/me",
+    { preHandler: [authenticate] },
     handleMe
   );
 
   // Refresh token
-  app.post("/auth/refresh", 
-    { preHandler: [authenticate] }, 
+  app.post("/refresh",
+    { preHandler: [authenticate] },
     handleRefreshToken
   );
 
   // Logout
-  app.post("/auth/logout", 
-    { preHandler: [authenticate] }, 
+  app.post("/logout",
+    { preHandler: [authenticate] },
     handleLogout
   );
 
   // Verificar email
-  app.post("/auth/verify-email/:token", async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post("/verify-email/:token", async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { token } = request.params as { token: string };
-      
-      // Implementar verificação de email
+
+      // Buscar usuário pelo token de verificação
+      const usuario = await prisma.usuario.findFirst({
+        where: {
+          resetToken: token,
+          resetTokenExpiry: { gt: new Date() }
+        }
+      });
+
+      if (!usuario) {
+        return reply.status(400).send({
+          success: false,
+          message: "Token de verificação inválido ou expirado"
+        });
+      }
+
+      // Atualizar usuário como verificado
+      await prisma.usuario.update({
+        where: { id: usuario.id },
+        data: {
+          emailVerificado: true,
+          status: "ATIVO",
+          resetToken: null,
+          resetTokenExpiry: null
+        }
+      });
+
+      logger.info({
+        message: "Email verificado",
+        usuarioId: usuario.id,
+        email: usuario.email
+      });
+
       return reply.send({
         success: true,
         message: "Email verificado com sucesso"
