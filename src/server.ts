@@ -36,7 +36,7 @@ const port = Number(process.env.PORT) || 3333;
 // Iniciar servidor
 app.listen({ 
   port,
-  host:process.env.HOST || '0.0.0.0'  // Adicione isso para aceitar conexões externas
+  host:'0.0.0.0'  // Adicione isso para aceitar conexões externas
 }, (err, address) => {
   if (err) {
     console.error('❌ ERRO ao iniciar servidor:', err);
