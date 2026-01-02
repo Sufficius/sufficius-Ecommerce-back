@@ -23,7 +23,7 @@ export const logger = pino({
   timestamp: pino.stdTimeFunctions.isoTime,
   base: {
     pid: process.pid,
-    hostname: process.env.HOSTNAME || 'localhost',
+    hostname: process.env.HOST || 'localhost',
     service: 'sufficius-backend',
     environment: process.env.NODE_ENV || 'development'
   },

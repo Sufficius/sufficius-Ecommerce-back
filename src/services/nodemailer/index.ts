@@ -1,78 +1,44 @@
 import * as nodemailer from 'nodemailer';
-import { logger } from '../../utils/logger';
 
-interface EmailConfig {
-  host?: string;
-  port?: number;
-  secure?: boolean;
-  user?: string;
-  pass?: string;
-  from?: string;
-}
-
-export async function sendResetCodeEmail(to: string, code: string, nome: string) {
+export async function sendResetCodeEmail(to: string, code: string) {
   try {
-    // Log de início
-    logger.info({
-      message: '📧 Iniciando envio de email de recuperação',
-      email: to,
-      nome: nome
-    });
-
-    // Configurações de email
-    const emailConfig: EmailConfig = {
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: process.env.SMTP_SECURE === 'true',
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-      from: process.env.SMTP_FROM || process.env.SMTP_USER
-    };
-
-    // Verificar configurações
-    const isSMTPConfigured = emailConfig.host && emailConfig.user && emailConfig.pass;
     
-    logger.debug({
-      message: 'Configurações SMTP verificadas',
-      configurado: isSMTPConfigured,
-      host: emailConfig.host ? '✅' : '❌',
-      user: emailConfig.user ? '✅' : '❌',
-      port: emailConfig.port
-    });
+    console.log('\n' + '📧'.repeat(20));
+    console.log('📧 EMAIL DE RECUPERAÇÃO DE SENHA 📧');
+    console.log('📧'.repeat(20));
+    console.log(`📩 Para: ${to}`);
+    console.log(`🔑 Código: ${code}`);
+    console.log(`🕐 Gerado em: ${new Date().toLocaleString()}`);
+    console.log(`⏰ Válido por: 1 hora`);
+    
+    // Verificar se o nodemailer está carregado
+    console.log(`🔧 Nodemailer disponível: ${!!nodemailer.createTransport}`);
+    console.log(`🔧 SMTP configurado: ${!!process.env.SMTP_HOST}`);
 
-    // Se tiver SMTP configurado, envia email real
-    if (isSMTPConfigured) {
-      logger.info('🚀 Enviando email real via SMTP...');
+
+      // Se tiver variáveis de ambiente configuradas, tenta enviar
+    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+      console.log('🚀 Tentando enviar email real via SMTP...');
       
       const transporter = nodemailer.createTransport({
-        host: emailConfig.host,
-        port: emailConfig.port,
-        secure: emailConfig.secure,
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT) || 587,
+        secure: process.env.SMTP_SECURE === 'true',
         auth: {
-          user: emailConfig.user,
-          pass: emailConfig.pass
-        },
-        tls: {
-          rejectUnauthorized: false // Para desenvolvimento
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS
         }
       });
 
-      // Testar conexão SMTP
-      try {
-        await transporter.verify();
-        logger.info('✅ Conexão SMTP verificada com sucesso');
-      } catch (verifyError: any) {
-        logger.warn({
-          message: '⚠️  Falha na verificação SMTP, continuando...',
-          error: verifyError.message
-        });
-      }
-
+ // Testar conexão SMTP
+      console.log('🔍 Verificando conexão SMTP...');
+      await transporter.verify();
+      console.log('✅ Conexão SMTP verificada com sucesso');
       const mailOptions = {
-        from: `"Sufficius Suporte" <${emailConfig.from}>`,
+        from: `"Sufficius Suporte" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
         to,
         subject: "🔐 Código de Recuperação de Senha - Sufficius",
-        text: `Olá ${nome},\n\nSeu código de recuperação de senha é: ${code}\n\nEste código é válido por 1 hora.\n\nSe você não solicitou esta recuperação, ignore este email.\n\nAtenciosamente,\nEquipe Sufficius`,
+        text: `Olá,\n\nSeu código de recuperação de senha é: ${code}\n\nEste código é válido por 1 hora.\n\nSe você não solicitou esta recuperação, ignore este email.\n\nAtenciosamente,\nEquipe Sufficius`,
         html: `
 <!DOCTYPE html>
 <html>
@@ -173,7 +139,7 @@ export async function sendResetCodeEmail(to: string, code: string, nome: string)
         <div class="content">
             <div class="logo">🛒 Sufficius</div>
             
-            <p class="message">Olá <strong>${nome}</strong>,</p>
+            <p class="message">Olá <strong></strong>,</p>
             
             <p class="message">Recebemos uma solicitação para redefinir sua senha na Sufficius. Use o código abaixo para continuar:</p>
             
@@ -207,130 +173,42 @@ export async function sendResetCodeEmail(to: string, code: string, nome: string)
         `
       };
 
-      try {
-        const info = await transporter.sendMail(mailOptions);
-        
-        logger.info({
-          message: '✅ Email enviado com sucesso',
-          email: to,
-          messageId: info.messageId,
-          response: info.response
-        });
-        
-        return info;
-      } catch (sendError: any) {
-        logger.error({
-          message: '❌ Erro ao enviar email via SMTP',
-          error: sendError.message,
-          code: sendError.code,
-          email: to
-        });
-        
-        // Fallback: log detalhado em desenvolvimento
-        return handleDevFallback(to, code, nome, sendError);
-      }
+        console.log('📤 Enviando email...');
+      const info = await transporter.sendMail(mailOptions);
+   
+      console.log('✅ Email REAL enviado com sucesso!');
+      console.log(`📨 Message ID: ${info.messageId}`);
+      console.log(`👁️  Preview: https://mail.google.com/mail/u/0/#inbox`);
       
+      return info;
     } else {
-      // Modo desenvolvimento - apenas log
-      return handleDevFallback(to, code, nome);
+      console.log('⚠️  SMTP não configurado completamente.');
+      console.log(`🔍 SMTP_HOST: ${process.env.SMTP_HOST ? '✅' : '❌'}`);
+      console.log(`🔍 SMTP_USER: ${process.env.SMTP_USER ? '✅ (primeiros 3: ' + process.env.SMTP_USER.substring(0, 3) + '...)' : '❌'}`);
+      console.log(`🔍 SMTP_PASS: ${process.env.SMTP_PASS ? '✅ (primeiros 3: ' + process.env.SMTP_PASS.substring(0, 3) + '...)' : '❌'}`);
+      
+      console.log('📧📧📧📧📧📧📧📧📧📧📧📧📧📧📧📧📧📧📧📧');
+    }
+
+    return { messageId: 'dev-mode', accepted: [to] };
+} catch (error: any) {
+    console.error('❌ Erro no envio de email:');
+    console.error(`   Mensagem: ${error.message}`);
+    console.error(`   Código: ${error.code}`);
+    console.error(`   Comando: ${error.command}`);
+    
+    if (error.code === 'EAUTH') {
+      console.error('🔐 Erro de autenticação SMTP. Verifique:');
+      console.error('   1. Email e senha corretos');
+      console.error('   2. Verificação em 2 etapas ativada');
+      console.error('   3. Senha de app gerada corretamente');
+      console.error('   4. Acesso a apps menos seguros (se não usar app password)');
     }
     
-  } catch (error: any) {
-    logger.error({
-      message: '❌ Erro inesperado no serviço de email',
-      error: error.message,
-      stack: error.stack
-    });
+    // Mesmo com erro, mostra o código no console
+    console.log(`\n⚠️  MAS O CÓDIGO É: ${code} (use no reset password)`);
     
-    // Fallback para desenvolvimento
-    return handleDevFallback(to, code, nome || 'Usuário', error);
-  }
-}
-
-// Função para modo desenvolvimento
-function handleDevFallback(to: string, code: string, nome: string, error?: any) {
-  const timestamp = new Date().toLocaleString('pt-BR');
-  
-  logger.info({
-    message: '📧📧📧 MODO DESENVOLVIMENTO 📧📧📧',
-    envioReal: 'NÃO',
-    sistema: 'Sufficius E-commerce'
-  });
-  
-  logger.info({
-    message: 'Detalhes do email simulado:',
-    timestamp: timestamp,
-    destinatario: to,
-    nome: nome,
-    codigo: code,
-    validoPor: '1 hora'
-  });
-  
-  if (error) {
-    logger.warn({
-      message: 'Erro original:',
-      error: error.message
-    });
-  }
-  
-  logger.info({
-    message: 'Para configurar envio real, adicione ao .env:',
-    exemplo: `SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=seu-email@gmail.com
-SMTP_PASS=sua-senha-app
-SMTP_FROM=suporte@sufficius.com`
-  });
-  
-  return {
-    messageId: `dev-${Date.now()}`,
-    accepted: [to],
-    envelope: { from: 'dev@sufficius.com', to: [to] },
-    devMode: true,
-    code: code // Inclui o código no retorno para debug
-  };
-}
-
-// Exportar outras funções de email relacionadas
-export async function sendWelcomeEmail(to: string, nome: string) {
-  try {
-    logger.info({
-      message: '📧 Enviando email de boas-vindas',
-      email: to,
-      nome: nome
-    });
-
-    // Implementação similar à sendResetCodeEmail
-    // ... código para email de boas-vindas
-    
-    return { success: true, email: to };
-  } catch (error) {
-    logger.error({
-      message: 'Erro no email de boas-vindas',
-      error
-    });
-    return { success: false, email: to };
-  }
-}
-
-export async function sendOrderConfirmationEmail(to: string, nome: string, pedidoId: string) {
-  try {
-    logger.info({
-      message: '📧 Enviando confirmação de pedido',
-      email: to,
-      nome: nome,
-      pedidoId: pedidoId
-    });
-
-    // Implementação para email de confirmação de pedido
-    // ... código para email de pedido
-    
-    return { success: true, email: to, pedidoId };
-  } catch (error) {
-    logger.error({
-      message: 'Erro no email de confirmação de pedido',
-      error
-    });
-    return { success: false, email: to, pedidoId };
+    // Não lança erro para não quebrar o fluxo
+    return { messageId: 'error-fallback', accepted: [to] };
   }
 }
