@@ -29,6 +29,10 @@
     "@prisma/adapter-mariadb": "^7.2.0",
     "@prisma/adapter-planetscale": "^7.2.0",
     "@prisma/client": "^5.7.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.0.3",
+    "@types/nodemailer": "^7.0.4",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -43,11 +47,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^20.19.27",
-    "@types/nodemailer": "^7.0.4",
     "prisma": "^5.7.0",
     "ts-node-dev": "^2.0.0"
   }
