@@ -35,3 +35,5 @@ export default async function authRoutes(app: FastifyInstance) {
     reply.send({ token, user });
   });
 }
+
+
