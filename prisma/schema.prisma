@@ -1,23 +1,279 @@
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
+model avaliacao {
+  id               String   @id
+  usuarioId        String
+  produtoId        String
+  nota             Int      @default(5)
+  comentario       String?
+  compraVerificada Boolean  @default(false)
+  criadoEm         DateTime @default(now())
+  atualizadoEm     DateTime @default(now())
+  produto          produto  @relation(fields: [produtoId], references: [id])
+  usuario          usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
-// Enum para status do usuário
-enum StatusUsuario {
-  PENDENTE
-  ATIVO
-  SUSPENSO
-  DELETADO
+  @@unique([usuarioId, produtoId])
+  @@index([produtoId])
+  @@index([usuarioId])
 }
 
-// Enum para status do pedido
-enum StatusPedido {
+model carrinho {
+  id           String         @id
+  usuarioId    String         @unique
+  criadoEm     DateTime       @default(now())
+  atualizadoEm DateTime       @default(now())
+  usuario      usuario        @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  itemcarrinho itemcarrinho[]
+}
+
+model categoria {
+  id              String      @id
+  nome            String      @unique
+  descricao       String?
+  slug            String      @unique
+  paiId           String?
+  criadoEm        DateTime    @default(now())
+  atualizadoEm    DateTime    @default(now())
+  categoria       categoria?  @relation("categoriaTocategoria", fields: [paiId], references: [id])
+  other_categoria categoria[] @relation("categoriaTocategoria")
+  produto         produto[]   @relation("produtocategorias")
+
+  @@index([paiId])
+  @@index([slug])
+}
+
+model devolucao {
+  id           String     @id
+  usuarioId    String
+  pedidoId     String
+  itemPedidoId String
+  motivo       String
+  descricao    String?
+  status       String     @default("PENDENTE")
+  solicitadoEm DateTime   @default(now())
+  aprovadoEm   DateTime?
+  concluidoEm  DateTime?
+  criadoEm     DateTime   @default(now())
+  atualizadoEm DateTime   @default(now())
+  itempedido   itempedido @relation(fields: [itemPedidoId], references: [id], onDelete: Cascade)
+  pedido       pedido     @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  usuario      usuario    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([itemPedidoId])
+  @@index([pedidoId])
+  @@index([status])
+  @@index([usuarioId])
+}
+
+model endereco {
+  id           String   @id
+  usuarioId    String
+  rua          String
+  numero       String
+  complemento  String?
+  bairro       String
+  cidade       String
+  estado       String
+  cep          String
+  pais         String   @default("Brasil")
+  padrao       Boolean  @default(false)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @default(now())
+  usuario      usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  pedido       pedido[]
+
+  @@index([usuarioId])
+}
+
+model historicostatuspedido {
+  id          String                       @id
+  pedidoId    String
+  status      historicostatuspedido_status
+  observacoes String?
+  alteradoEm  DateTime                     @default(now())
+  alteradoPor String?
+  pedido      pedido                       @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  @@index([alteradoEm])
+  @@index([pedidoId])
+}
+
+model imagemproduto {
+  id        String   @id
+  produtoId String
+  url       String
+  textoAlt  String?
+  principal Boolean  @default(false)
+  ordem     Int      @default(0)
+  criadoEm  DateTime @default(now())
+  produto   produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  @@unique([produtoId, principal])
+  @@index([produtoId])
+}
+
+model itemcarrinho {
+  id              String   @id
+  carrinhoId      String
+  produtoId       String
+  quantidade      Int      @default(1)
+  precoNoCarrinho Float    // Alterado de Decimal para Float
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @default(now())
+  carrinho        carrinho @relation(fields: [carrinhoId], references: [id], onDelete: Cascade)
+  produto         produto  @relation(fields: [produtoId], references: [id])
+
+  @@unique([carrinhoId, produtoId])
+  @@index([carrinhoId])
+  @@index([produtoId])
+}
+
+model itempedido {
+  id            String      @id
+  pedidoId      String
+  produtoId     String
+  quantidade    Int
+  precoUnitario Float       // Alterado de Decimal para Float
+  precoTotal    Float       // Alterado de Decimal para Float
+  criadoEm      DateTime    @default(now())
+  devolucao     devolucao[]
+  pedido        pedido      @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produto       produto     @relation(fields: [produtoId], references: [id])
+
+  @@index([pedidoId])
+  @@index([produtoId])
+}
+
+model pagamento {
+  id               String           @id
+  pedidoId         String
+  metodoPagamento  String
+  gatewayPagamento String
+  gatewayId        String?
+  status           pagamento_status @default(PENDENTE)
+  valor            Float            // Alterado de Decimal para Float
+  ultimosQuatro    String?
+  bandeira         String?
+  metadata         String?
+  processadoEm     DateTime?
+  criadoEm         DateTime         @default(now())
+  atualizadoEm     DateTime         @default(now())
+  pedido           pedido           @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  @@index([gatewayId])
+  @@index([pedidoId])
+  @@index([status])
+}
+
+model pedido {
+  id                    String                  @id
+  numeroPedido          String                  @unique
+  usuarioId             String
+  enderecoId            String
+  status                pedido_status           @default(PAGAMENTO_PENDENTE)
+  subtotal              Float                   // Alterado de Decimal para Float
+  frete                 Float                   // Alterado de Decimal para Float
+  imposto               Float                   // Alterado de Decimal para Float
+  desconto              Float                   @default(0.00) // Alterado de Decimal para Float
+  total                 Float                   // Alterado de Decimal para Float
+  codigoRastreio        String?
+  metodoEnvio           String
+  entregaEstimada       DateTime?
+  entregueEm            DateTime?
+  observacoes           String?
+  criadoEm              DateTime                @default(now())
+  atualizadoEm          DateTime                @default(now())
+  devolucao             devolucao[]
+  historicostatuspedido historicostatuspedido[]
+  itempedido            itempedido[]
+  pagamento             pagamento[]
+  endereco              endereco                @relation(fields: [enderecoId], references: [id])
+  usuario               usuario                 @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([criadoEm])
+  @@index([enderecoId])
+  @@index([numeroPedido])
+  @@index([status])
+  @@index([usuarioId])
+}
+
+model produto {
+  id                 String          @id
+  nome               String
+  descricao          String?
+  preco              Float           // Alterado de Decimal para Float
+  precoDesconto      Float?          // Alterado de Decimal para Float
+  percentualDesconto Float?          @default(0)
+  descontoAte        DateTime?
+  estoque            Int             @default(0)
+  sku                String          @unique
+  ativo              Boolean         @default(true)
+  emDestaque         Boolean         @default(false)
+  criadoEm           DateTime        @default(now())
+  atualizadoEm       DateTime        @default(now())
+  avaliacao          avaliacao[]
+  imagemproduto      imagemproduto[]
+  itemcarrinho       itemcarrinho[]
+  itempedido         itempedido[]
+  categoria          categoria[]     @relation("produtocategorias")
+
+  @@index([ativo])
+  @@index([estoque])
+  @@index([nome])
+  @@index([sku])
+}
+
+model tokenverificacao {
+  id        String    @id
+  usuarioId String
+  token     String    @unique
+  tipo      String
+  expiraEm  DateTime
+  usado     Boolean   @default(false)
+  usadoEm   DateTime?
+  criadoEm  DateTime  @default(now())
+  usuario   usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([usuarioId])
+}
+
+model usuario {
+  id                 String             @id
+  email              String             @unique
+  telefone           String             @unique
+  nome               String
+  senhaHash          String
+  emailVerificado    Boolean            @default(false)
+  telefoneVerificado Boolean            @default(false)
+  status             usuario_status     @default(PENDENTE)
+  tipo               usuario_tipo       @default(CLIENTE)
+  criadoEm           DateTime           @default(now())
+  atualizadoEm       DateTime           @default(now())
+  ultimoLogin        DateTime?
+  googleId           String?
+  foto               String?
+  resetToken         String?
+  resetTokenExpiry   DateTime?
+  avaliacao          avaliacao[]
+  carrinho           carrinho?
+  devolucao          devolucao[]
+  endereco           endereco[]
+  pedido             pedido[]
+  tokenverificacao   tokenverificacao[]
+
+  @@unique([email, telefone])
+  @@index([email])
+  @@index([telefone])
+}
+
+enum historicostatuspedido_status {
   PAGAMENTO_PENDENTE
   PROCESSANDO
   CONFIRMADO
@@ -29,8 +285,19 @@ enum StatusPedido {
   REEMBOLSADO
 }
 
-// Enum para status do pagamento
-enum StatusPagamento {
+enum pedido_status {
+  PAGAMENTO_PENDENTE
+  PROCESSANDO
+  CONFIRMADO
+  PREPARANDO
+  ENVIADO
+  ENTREGUE
+  CANCELADO
+  DEVOLVIDO
+  REEMBOLSADO
+}
+
+enum pagamento_status {
   PENDENTE
   PROCESSANDO
   CONCLUIDO
@@ -39,343 +306,15 @@ enum StatusPagamento {
   CANCELADO
 }
 
-// Enum para tipos de usuário
-enum TipoUsuario {
+enum usuario_status {
+  PENDENTE
+  ATIVO
+  SUSPENSO
+  DELETADO
+}
+
+enum usuario_tipo {
   CLIENTE
   ADMIN
   GERENTE
-}
-
-// ============== TABELAS EM PORTUGUÊS ==============
-
-// TABELA: Usuário
-model Usuario {
-  id                 String        @id @default(uuid())
-  email              String        @unique
-  telefone           String        @unique
-  nome               String
-  senhaHash          String
-  emailVerificado    Boolean       @default(false)
-  telefoneVerificado Boolean       @default(false)
-  status             StatusUsuario @default(PENDENTE)
-  tipo               TipoUsuario   @default(CLIENTE)
-  resetToken         String?
-  resetTokenExpiry   DateTime?
-
-  // Relacionamentos
-  enderecos         Endereco[]
-  carrinho          Carrinho?
-  pedidos           Pedido[]
-  avaliacoes        Avaliacao[]
-  devolucoes        Devolucao[]
-  tokensVerificacao TokenVerificacao[]
-  googleId          String?
-  foto              String?
-
-  // Metadata
-  criadoEm     DateTime  @default(now())
-  atualizadoEm DateTime  @updatedAt
-  ultimoLogin  DateTime?
-
-  @@unique([email, telefone])
-  @@index([email])
-  @@index([telefone])
-}
-
-// TABELA: Endereço
-model Endereco {
-  id        String  @id @default(uuid())
-  usuarioId String
-  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  rua         String
-  numero      String
-  complemento String?
-  bairro      String
-  cidade      String
-  estado      String
-  cep         String
-  pais        String  @default("Brasil")
-  padrao      Boolean @default(false)
-
-  pedidos Pedido[]
-
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-
-  @@index([usuarioId])
-}
-
-// TABELA: Produto
-model Produto {
-  id                 String    @id @default(uuid())
-  nome               String
-  descricao          String?
-  preco              Decimal   @db.Decimal(10, 2)
-  precoDesconto      Decimal?  @db.Decimal(10, 2)
-  percentualDesconto Float?    @default(0)
-  descontoAte        DateTime?
-
-  categorias Categoria[]     @relation("ProdutoCategorias")
-  imagens    ImagemProduto[]
-
-  estoque    Int     @default(0)
-  sku        String  @unique
-  ativo      Boolean @default(true)
-  emDestaque Boolean @default(false)
-
-  itensCarrinho ItemCarrinho[]
-  itensPedido   ItemPedido[]
-  avaliacoes    Avaliacao[]
-
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-
-  @@index([nome])
-  @@index([sku])
-  @@index([ativo])
-  @@index([estoque])
-}
-
-// TABELA: Categoria
-model Categoria {
-  id        String      @id @default(uuid())
-  nome      String      @unique
-  descricao String?
-  slug      String      @unique
-  paiId     String?
-  pai       Categoria?  @relation("CategoriaFilhos", fields: [paiId], references: [id])
-  filhos    Categoria[] @relation("CategoriaFilhos")
-  produtos  Produto[]   @relation("ProdutoCategorias")
-
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-
-  @@index([slug])
-}
-
-// TABELA: Imagem do Produto
-model ImagemProduto {
-  id        String  @id @default(uuid())
-  produtoId String
-  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-
-  url       String
-  textoAlt  String?
-  principal Boolean @default(false)
-  ordem     Int     @default(0)
-
-  criadoEm DateTime @default(now())
-
-  @@unique([produtoId, principal])
-  @@index([produtoId])
-}
-
-// TABELA: Carrinho
-model Carrinho {
-  id        String  @id @default(uuid())
-  usuarioId String  @unique
-  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  itens ItemCarrinho[]
-
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-}
-
-// TABELA: Item do Carrinho
-model ItemCarrinho {
-  id         String   @id @default(uuid())
-  carrinhoId String
-  carrinho   Carrinho @relation(fields: [carrinhoId], references: [id], onDelete: Cascade)
-
-  produtoId String
-  produto   Produto @relation(fields: [produtoId], references: [id])
-
-  quantidade      Int     @default(1)
-  precoNoCarrinho Decimal @db.Decimal(10, 2)
-
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-
-  @@unique([carrinhoId, produtoId])
-  @@index([carrinhoId])
-  @@index([produtoId])
-}
-
-// TABELA: Pedido
-model Pedido {
-  id           String  @id @default(uuid())
-  numeroPedido String  @unique
-  usuarioId    String
-  usuario      Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  enderecoId String
-  endereco   Endereco @relation(fields: [enderecoId], references: [id])
-
-  itens      ItemPedido[]
-  pagamentos Pagamento[]
-  devolucoes Devolucao[] // ✅ CORREÇÃO: Relação adicionada
-
-  status StatusPedido @default(PAGAMENTO_PENDENTE)
-
-  // Valores
-  subtotal Decimal @db.Decimal(10, 2)
-  frete    Decimal @db.Decimal(10, 2)
-  imposto  Decimal @db.Decimal(10, 2)
-  desconto Decimal @default(0) @db.Decimal(10, 2)
-  total    Decimal @db.Decimal(10, 2)
-
-  // Entrega
-  codigoRastreio  String?
-  metodoEnvio     String
-  entregaEstimada DateTime?
-  entregueEm      DateTime?
-
-  // Metadata
-  observacoes  String?
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-
-  historicoStatus HistoricoStatusPedido[]
-
-  @@index([usuarioId])
-  @@index([numeroPedido])
-  @@index([status])
-  @@index([criadoEm])
-}
-
-// TABELA: Item do Pedido
-model ItemPedido {
-  id       String @id @default(uuid())
-  pedidoId String
-  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-
-  produtoId String
-  produto   Produto @relation(fields: [produtoId], references: [id])
-
-  quantidade    Int
-  precoUnitario Decimal @db.Decimal(10, 2)
-  precoTotal    Decimal @db.Decimal(10, 2)
-
-  criadoEm   DateTime    @default(now())
-  devolucoes Devolucao[] // ✅ CORREÇÃO: Relação adicionada
-
-  @@index([pedidoId])
-  @@index([produtoId])
-}
-
-// TABELA: Pagamento
-model Pagamento {
-  id       String @id @default(uuid())
-  pedidoId String
-  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-
-  metodoPagamento  String
-  gatewayPagamento String
-  gatewayId        String?
-
-  status StatusPagamento @default(PENDENTE)
-  valor  Decimal         @db.Decimal(10, 2)
-
-  // Cartão
-  ultimosQuatro String?
-  bandeira      String?
-
-  // Metadata
-  metadata     Json?
-  processadoEm DateTime?
-  criadoEm     DateTime  @default(now())
-  atualizadoEm DateTime  @updatedAt
-
-  @@index([pedidoId])
-  @@index([gatewayId])
-  @@index([status])
-}
-
-// TABELA: Avaliação
-model Avaliacao {
-  id        String  @id @default(uuid())
-  usuarioId String
-  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  produtoId String
-  produto   Produto @relation(fields: [produtoId], references: [id])
-
-  nota       Int     @default(5)
-  comentario String?
-
-  compraVerificada Boolean @default(false)
-
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-
-  @@unique([usuarioId, produtoId])
-  @@index([produtoId])
-  @@index([usuarioId])
-}
-
-// TABELA: Devolução
-model Devolucao {
-  id        String  @id @default(uuid())
-  usuarioId String
-  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  pedidoId String
-  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-
-  itemPedidoId String
-  itemPedido   ItemPedido @relation(fields: [itemPedidoId], references: [id], onDelete: Cascade)
-
-  motivo    String
-  descricao String?
-
-  status String @default("PENDENTE")
-
-  // Prazo de 30 dias
-  solicitadoEm DateTime  @default(now())
-  aprovadoEm   DateTime?
-  concluidoEm  DateTime?
-
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-
-  @@index([usuarioId])
-  @@index([pedidoId])
-  @@index([status])
-}
-
-// TABELA: Token de Verificação
-model TokenVerificacao {
-  id        String  @id @default(uuid())
-  usuarioId String
-  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  token    String   @unique
-  tipo     String
-  expiraEm DateTime
-
-  usado   Boolean   @default(false)
-  usadoEm DateTime?
-
-  criadoEm DateTime @default(now())
-
-  @@index([usuarioId])
-  @@index([token])
-}
-
-// TABELA: Histórico de Status do Pedido
-model HistoricoStatusPedido {
-  id       String @id @default(uuid())
-  pedidoId String
-  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-
-  status      StatusPedido
-  observacoes String?
-
-  alteradoEm  DateTime @default(now())
-  alteradoPor String?
-
-  @@index([pedidoId])
-  @@index([alteradoEm])
 }

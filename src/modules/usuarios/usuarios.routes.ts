@@ -29,7 +29,9 @@ export default async function authRoutes(app: FastifyInstance) {
     }
 
     const token = app.jwt.sign({
-      id: user.id
+      id: user.id,
+      email: user.email,
+      tipo: ""
     });
 
     reply.send({ token, user });
