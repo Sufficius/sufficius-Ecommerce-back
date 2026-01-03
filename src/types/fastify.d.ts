@@ -1,10 +1,8 @@
+// src/types/fastify.d.ts
+import '@fastify/jwt'
 declare module '@fastify/multipart';
 declare module '@fastify/swagger';
 declare module '@fastify/swagger-ui';
-
-
-// src/types/fastify.d.ts
-import '@fastify/jwt'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -25,4 +23,31 @@ declare module '@fastify/jwt' {
       tipo: string
     }
   }
+}
+
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    user?: {
+      id: string;
+      email: string;
+      tipo: string;
+      nome?: string;
+    }
+  }
+}
+
+// Tipos para requests
+export interface PaginatedQuery {
+  page?: string;
+  limit?: string;
+  search?: string;
+}
+
+export interface IdParam {
+  id: string;
+}
+
+export interface SlugParam {
+  slug: string;
 }

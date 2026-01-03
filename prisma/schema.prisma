@@ -195,6 +195,8 @@ model pedido {
   pagamento             pagamento[]
   endereco              endereco                @relation(fields: [enderecoId], references: [id])
   usuario               usuario                 @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  cupomId               String?
+  cupom                 cupom?                  @relation(fields: [cupomId], references: [id])
 
   @@index([criadoEm])
   @@index([enderecoId])
@@ -272,6 +274,32 @@ model usuario {
   @@index([email])
   @@index([telefone])
 }
+
+model cupom {
+  id         String   @id @default(cuid())
+  codigo     String   @unique
+  descricao  String?
+  tipo       tipo_cupom @default(PERCENTUAL)
+  valor      Float
+  validoAte  DateTime
+  usado      Int      @default(0)
+  maxUsage   Int?
+  ativo      Boolean  @default(true)
+  criadoEm   DateTime @default(now())
+  atualizadoEm DateTime @default(now())
+
+  pedido     pedido[]
+  
+  @@index([codigo])
+  @@index([ativo])
+  @@index([validoAte])
+}
+
+enum tipo_cupom {
+  PERCENTUAL
+  VALOR_FIXO
+}
+
 
 enum historicostatuspedido_status {
   PAGAMENTO_PENDENTE

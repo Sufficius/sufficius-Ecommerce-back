@@ -9,12 +9,14 @@ import * as dotenv from 'dotenv';
 import authRoutes from "./modules/auth/auth.routes";
 import usuarioRoutes from "./modules/usuarios/usuarios.routes";
 import servicoRoutes from "./services/service.routes";
-// REMOVA a importação direta das rotas de vendas aqui
+import vendasRoutes from "./modules/vendas/vendas.routes";
+import produtosRoutes from "./modules/produtos/produtos.routes";
+import pedidosRoutes from "./modules/pedidos/pedidos.routes";
 
 dotenv.config();
 
 if (!process.env.JWT_SECRET) {
-     console.error("❌ ERRO: JWT_SECRET não definido no .env");
+    console.error("❌ ERRO: JWT_SECRET não definido no .env");
     process.exit(1);
 }
 
@@ -22,8 +24,8 @@ const app = Fastify({ logger: true });
 
 const corsOptions = {
     origin: process.env.CORS_ORIGINS
-        ? process.env.CORS_ORIGINS.split(',').map((o:string) => o.trim())
-        : ['http://localhost:5173', 'http:localhost:3000','http://localhost:8080'],
+        ? process.env.CORS_ORIGINS.split(',').map((o: string) => o.trim())
+        : ['http://localhost:5173', 'http:localhost:3000', 'http://localhost:8080'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Acess-Token', 'X-API-Key']
@@ -65,15 +67,48 @@ app.register(swagger, {
 
 app.register(swaggerUI, { routePrefix: "/docs", uiConfig: { docExpansion: 'list', deepLinking: true } });
 
+// Registro de todas as rotas (sem await no top-level)
 app.register(authRoutes, { prefix: `/auth` });
-app.register(usuarioRoutes, { prefix: `/usuarios`});
-app.register(servicoRoutes, {prefix: `/produtos`});
+app.register(usuarioRoutes, { prefix: `/usuarios` });
+app.register(servicoRoutes, { prefix: `/produto` });
+app.register(vendasRoutes, { prefix: `/vendas` });
+app.register(produtosRoutes, { prefix: '/produtos' });
+app.register(pedidosRoutes, { prefix: `/pedidos` });
 
-// REGISTRE AS ROTAS DE VENDAS DINAMICAMENTE (evita circular dependency)
-app.register(async (app) => {
-    const vendasRoutes = (await import('./modules/vendas/vendas.routes')).default;
-    app.register(vendasRoutes, { prefix: `/vendas` });
-});
+// Função para registrar rotas dinâmicas usando IIFE (Immediately Invoked Function Expression)
+(() => {
+    // Importar e registrar rotas dinamicamente sem await no top-level
+    import('./modules/categorias/categorias.routes').then(module => {
+        app.register(module.default, { prefix: `/categorias` });
+    }).catch(error => {
+        console.error('Erro ao importar rotas de categorias:', error);
+    });
+
+    import('./modules/avaliacoes/avaliacoes.routes').then(module => {
+        app.register(module.default, { prefix: `/avaliacoes` });
+    }).catch(error => {
+        console.error('Erro ao importar rotas de avaliações:', error);
+    });
+
+    import('./modules/enderecos/enderecos.routes').then(module => {
+        app.register(module.default, { prefix: `/enderecos` });
+    }).catch(error => {
+        console.error('Erro ao importar rotas de endereços:', error);
+    });
+
+    import('./modules/carrinho/carrinho.routes').then(module => {
+        app.register(module.default, { prefix: `/carrinho` });
+    }).catch(error => {
+        console.error('Erro ao importar rotas de carrinho:', error);
+    });
+
+
+    import('./modules/pagamentos/pagamentos.routes').then(module => {
+        app.register(module.default, { prefix: `/pagamentos` });
+    }).catch(error => {
+        console.error('Erro ao importar rotas de pagamentos:', error);
+    });
+})();
 
 app.get('/health', async () => ({
     status: 'ok',
