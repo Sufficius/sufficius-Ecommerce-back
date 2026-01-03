@@ -1,41 +1,47 @@
-import { FastifyInstance } from "fastify";
-import { hashPassword, comparePassword } from "../../utils/hash";
-import { prisma } from "../../config/prisma";
+import { FastifyInstance } from 'fastify';
+import { UsuariosController } from './usuarios.controller';
 
-export default async function authRoutes(app: FastifyInstance) {
-  app.post("/register", async (req, reply) => {
-    const { nome, email, id, telefone, tipo, senhaHash } = req.body as any;
+const usuariosController = new UsuariosController();
 
-    const user = await prisma.usuario.create({
-      data: {
-        nome,
-        email,
-        id,
-        telefone,
-        tipo,
-        senhaHash
-      }
-    });
+export async function usuariosRoutes(fastify: FastifyInstance) {
+  // Rotas públicas
+  fastify.post(
+    '/usuarios',
+    usuariosController.criarUsuario
+  );
 
-    reply.send(user);
-  });
+  fastify.post(
+    '/usuarios/login',
+    usuariosController.login
+  );
 
-  app.post("/login", async (req, reply) => {
-    const { email, senha } = req.body as any;
+  // Rotas protegidas por autenticação
+  fastify.get(
+    '/usuarios/perfil',
+    usuariosController.obterPerfil
+  );
 
-    const user = await prisma.usuario.findUnique({ where: { email } });
-    if (!user || !(await comparePassword(email, user.email))) {
-      return reply.status(401).send({ message: "Credenciais inválidas" });
-    }
+  // Rotas protegidas por autenticação e autorização (apenas admin)
+  fastify.get(
+    '/usuarios',
+    usuariosController.listarUsuarios
+  );
 
-    const token = app.jwt.sign({
-      id: user.id,
-      email: user.email,
-      tipo: ""
-    });
+  fastify.get(
+    '/usuarios/:id',
+    usuariosController.obterUsuarioPorId
+  );
 
-    reply.send({ token, user });
-  });
+  fastify.put(
+    '/usuarios/:id',
+    usuariosController.atualizarUsuario
+  );
+
+  fastify.delete(
+    '/usuarios/:id',
+    usuariosController.deletarUsuario
+  );
 }
 
-
+// Exportando o plugin
+export default usuariosRoutes;
