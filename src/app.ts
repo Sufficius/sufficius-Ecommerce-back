@@ -134,7 +134,7 @@ app.register(jwt, {
 app.register(multipart, {
     limits: {
         fileSize: 10 * 1024 * 1024, // 10MB
-        files: 1
+        files: 5
     }
 });
 
