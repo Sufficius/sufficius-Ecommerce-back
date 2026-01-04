@@ -1,6 +1,32 @@
 // src/modules/produtos/produtos.controller.ts
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma';
+import { pipeline } from 'stream/promises';
+import fs from 'fs';
+import path from 'path';
+import { randomUUID } from 'crypto';
+
+// Configurar upload de arquivos
+const uploadDir = path.join(process.cwd(), 'uploads');
+
+// Criar diretório se não existir
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Função auxiliar para salvar arquivo
+async function saveFile(file: any, produtoId: string) {
+  const filename = `${produtoId}-${randomUUID()}${path.extname(file.filename)}`;
+  const filepath = path.join(uploadDir, filename);
+  
+  await pipeline(file.file, fs.createWriteStream(filepath));
+  
+  return {
+    filename,
+    filepath,
+    url: `/uploads/${filename}`
+  };
+}
 
 export class ProdutosController {
   async listarProdutos(
@@ -42,7 +68,11 @@ export class ProdutosController {
       }
 
       if (categoria) {
-        where.categoriaId = categoria;
+        where.categoria = {
+          some: {
+            id: categoria
+          }
+        };
       }
 
       if (status) {
@@ -183,25 +213,46 @@ export class ProdutosController {
   }
 
   async criarProduto(
-    request: FastifyRequest<{
-      Body: {
-        nome: string;
-        descricao: string;
-        preco: number;
-        precoDesconto?: number;
-        percentualDesconto?: number;
-        descontoAte?: string;
-        estoque: number;
-        sku: string;
-        categoriaId?: string;
-        ativo?: boolean;
-        emDestaque?: boolean;
-      }
-    }>,
+    request: FastifyRequest,
     reply: FastifyReply
   ) {
     try {
-      const dados = request.body;
+      console.log('📦 Recebendo requisição para criar produto...');
+      
+      // Verificar se é multipart/form-data
+      const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
+      
+      let dados: any = {};
+      let imagemFile: any = null;
+      
+      if (isMultipart) {
+        const parts = request.parts();
+        for await (const part of parts) {
+          if (part.type === 'file') {
+            imagemFile = part;
+          } else {
+            // Converter strings booleanas para boolean
+            if (part.fieldname === 'ativo' || part.fieldname === 'emDestaque') {
+              dados[part.fieldname] = part.value === 'true' || part.value === '1';
+            } else {
+              dados[part.fieldname] = part.value;
+            }
+          }
+        }
+      } else {
+        dados = request.body as any;
+      }
+      
+      console.log('📄 Dados recebidos:', dados);
+      console.log('📁 Imagem recebida:', imagemFile ? 'Sim' : 'Não');
+
+      // Validações obrigatórias
+      if (!dados.nome || !dados.sku || !dados.preco || dados.estoque === undefined) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Campos obrigatórios faltando: nome, sku, preco, estoque'
+        });
+      }
 
       // Verificar se SKU já existe
       const skuExistente = await prisma.produto.findUnique({
@@ -215,39 +266,108 @@ export class ProdutosController {
         });
       }
 
+      // Verificar se categoria existe (se fornecida)
+      if (dados.categoriaId) {
+        const categoria = await prisma.categoria.findUnique({
+          where: { id: dados.categoriaId }
+        });
+
+        if (!categoria) {
+          return reply.status(400).send({
+            success: false,
+            message: 'Categoria não encontrada'
+          });
+        }
+      }
+
       // Calcular percentual de desconto se não fornecido
       let percentualDesconto = dados.percentualDesconto;
       if (dados.precoDesconto && !percentualDesconto) {
-        percentualDesconto = ((dados.preco - dados.precoDesconto) / dados.preco) * 100;
+        percentualDesconto = ((parseFloat(dados.preco) - parseFloat(dados.precoDesconto)) / parseFloat(dados.preco)) * 100;
       }
+
+      // Preparar dados para criação
+      const produtoData: any = {
+        id: `prod_${Date.now()}_${randomUUID().substring(0, 8)}`,
+        nome: dados.nome,
+        descricao: dados.descricao || null,
+        preco: parseFloat(dados.preco),
+        precoDesconto: dados.precoDesconto ? parseFloat(dados.precoDesconto) : null,
+        percentualDesconto: percentualDesconto ? parseFloat(percentualDesconto.toFixed(2)) : null,
+        estoque: parseInt(dados.estoque),
+        sku: dados.sku,
+        ativo: dados.ativo !== undefined ? dados.ativo : true,
+        emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : false
+      };
+
+      // Adicionar relação com categoria se fornecida
+      if (dados.categoriaId) {
+        produtoData.categoria = {
+          connect: [{ id: dados.categoriaId }]
+        };
+      }
+
+      console.log('📊 Dados processados:', produtoData);
 
       // Criar produto
       const produto = await prisma.produto.create({
-        data: {
-          id: `prod_${Date.now()}`,
-          nome: dados.nome,
-          descricao: dados.descricao,
-          preco: dados.preco,
-          precoDesconto: dados.precoDesconto,
-          percentualDesconto: percentualDesconto ? parseFloat(percentualDesconto.toFixed(2)) : null,
-          descontoAte: dados.descontoAte ? new Date(dados.descontoAte) : null,
-          estoque: dados.estoque,
-          sku: dados.sku,
-          ativo: dados.ativo ?? true,
-          emDestaque: dados.emDestaque ?? false
+        data: produtoData
+      });
+
+      // Lidar com upload de imagem
+      if (imagemFile) {
+        try {
+          const savedFile = await saveFile(imagemFile, produto.id);
+          
+          await prisma.imagemproduto.create({
+            data: {
+              id: randomUUID(),
+              produtoId: produto.id,
+              url: savedFile.url,
+              textoAlt: dados.nome,
+              principal: true
+            }
+          });
+          
+          console.log('✅ Imagem salva:', savedFile.url);
+        } catch (imageError) {
+          console.error('⚠️ Erro ao salvar imagem:', imageError);
+          // Não falhar o produto se a imagem falhar
+        }
+      }
+
+      // Buscar produto criado com relações
+      const produtoCriado = await prisma.produto.findUnique({
+        where: { id: produto.id },
+        include: {
+          categoria: true,
+          imagemproduto: true
         }
       });
+
+      console.log('✅ Produto criado com sucesso:', produto.id);
 
       reply.status(201).send({
         success: true,
         message: 'Produto criado com sucesso',
-        data: produto
+        data: produtoCriado
       });
-    } catch (error) {
-      console.error('Erro ao criar produto:', error);
+
+    } catch (error: any) {
+      console.error('❌ Erro ao criar produto:', error);
+      
+      // Erros específicos do Prisma
+      if (error.code === 'P2002') {
+        return reply.status(400).send({
+          success: false,
+          message: 'SKU já está em uso'
+        });
+      }
+      
       reply.status(500).send({
         success: false,
-        message: 'Erro ao criar produto'
+        message: 'Erro interno ao criar produto',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
