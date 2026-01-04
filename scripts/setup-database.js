@@ -83,7 +83,8 @@ async function setupDatabase() {
           telefone: `admin_${Date.now()}`,
           senhaHash: hashedPassword,
           tipo: 'ADMIN',
-          emailVerificado: true
+          emailVerificado: true,
+          id:"1"
         }
       });
       console.log('✅ Usuário admin criado: admin@sufficius.com / Admin123!');
