@@ -8,12 +8,13 @@
     "prisma:migrate":"prisma migrate",
     "clean":"rm -rf dist node_modules/.prisma node_modules/.cache",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "npm run prisma:generate && tsc",
+    "build": "npm run prisma:generate && tsc && npm run db:setup",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
      "render-build": "npm ci --only=production && npm run prisma:generate && npm run prisma:migrate && npm run build",
-    "render-start": "node dist/server.js"
+    "render-start": "node dist/server.js",
+    "db:setup": "node scripts/setup-database.js"
   },
    "prisma": {
     "schema": "prisma/schema.prisma"

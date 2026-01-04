@@ -890,6 +890,45 @@ function initGoogleOAuth() {
 
 export default async function authRoutes(app: FastifyInstance) {
 
+  // Rota para forçar criação das tabelas (APENAS PARA DESENVOLVIMENTO/EMERGÊNCIA)
+app.post("/setup-database", async (req: FastifyRequest, reply: FastifyReply) => {
+  try {
+    // Verificar se é ambiente de desenvolvimento ou tem senha de admin
+    const { secret } = req.body as any;
+    const validSecret = process.env.ADMIN_SECRET || 'dev-secret-123';
+    
+    if (secret !== validSecret && process.env.NODE_ENV === 'production') {
+      return reply.status(403).send({
+        success: false,
+        message: "Acesso negado"
+      });
+    }
+    
+    console.log('🛠️  Executando setup do banco via API...');
+    
+    const { execSync } = require('child_process');
+    
+    // Executar db push
+    execSync('npx prisma db push --accept-data-loss', { 
+      stdio: 'pipe',
+      encoding: 'utf8'
+    });
+    
+    return reply.send({
+      success: true,
+      message: "Banco de dados configurado via API",
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Erro no setup via API:', error);
+    return reply.status(500).send({
+      success: false,
+      message: error.message,
+      output: error.stdout || error.stderr
+    });
+  }
+});
   // Atualize a rota /google no backend
 app.post("/google", async (req: FastifyRequest, reply: FastifyReply) => {
   try {
