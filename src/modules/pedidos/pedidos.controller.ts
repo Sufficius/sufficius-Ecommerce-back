@@ -218,20 +218,15 @@ export class PedidosController {
 
             // Aplicar cupom se existir
             if (cupom) {
-                const cupomValido = await prisma.cupom.findFirst({
+                const cupomValido = cupom ?  await prisma.cupom.findFirst({
                     where: {
                         codigo: cupom,
                         ativo: true,
                         validoAte: { gte: new Date() },
                     }
-                });
+                }): null;
 
                 if (cupomValido) {
-                    if (cupomValido.tipo === 'PERCENTUAL') {
-                        valorDesconto = subtotal * (cupomValido.valor / 100);
-                    } else {
-                        valorDesconto = cupomValido.valor;
-                    }
 
                     // Atualizar contador de uso
                     await prisma.cupom.update({

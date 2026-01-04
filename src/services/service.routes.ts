@@ -1,9 +1,9 @@
 import { prisma } from "../config/prisma";
-import { authMiddleware } from "../middleware/auth.middleware";
+import { authenticate } from "../middleware/auth.middleware";
 import { FastifyInstance } from "fastify";
 
 export default async function servicoRoutes(app: FastifyInstance) {
-  app.post("/", { preHandler: authMiddleware }, async (req) => {
+  app.post("/", { preHandler: authenticate }, async (req) => {
     const { id, nome, preco, sku } = req.body as any;
 
     return prisma.produto.create({
@@ -13,7 +13,7 @@ export default async function servicoRoutes(app: FastifyInstance) {
 
   app.get("/", async () => {
     return prisma.produto.findMany({
-      include: { categorias: true }
+      include: { categoria: true }
     });
   });
 }

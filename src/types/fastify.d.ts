@@ -16,11 +16,13 @@ declare module '@fastify/jwt' {
       id: string 
       email: string
       tipo: string
+      nome?:string
     }
     user: {
       id: string
       email: string
       tipo: string
+      nome?: string 
     }
   }
 }

@@ -867,10 +867,9 @@ import { hashPassword } from "../../utils/hash";
 
 // Interface para o usuário no JWT
 interface UserPayload {
-  id: number;
+  id: string;
   email: string;
-  nome: string;
-  BI: string;
+ 
 }
 
 let googleOAuthClient: OAuth2Client | null = null;
@@ -1047,9 +1046,7 @@ app.post("/google", async (req: FastifyRequest, reply: FastifyReply) => {
     const jwtToken = app.jwt.sign({
       id: user.id,
       email: user.email,
-      nome: user.nome,
       tipo: user.tipo,
-      googleId: payload.sub
     }, {
       expiresIn: "7d"
     });
@@ -1104,7 +1101,7 @@ app.post("/google", async (req: FastifyRequest, reply: FastifyReply) => {
   app.post("/register", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const { nome, email, tipo, telefone, senhaHash } = req.body as any;
-
+      const {id} = req.params as any;
       // Verificar se o usuário já existe pelo email
       const existingUserByEmail = await prisma.usuario.findUnique({
         where: { email },
@@ -1130,7 +1127,8 @@ app.post("/google", async (req: FastifyRequest, reply: FastifyReply) => {
           email,
           tipo: "CLIENTE",
           telefone,
-          senhaHash
+          senhaHash,
+          id: id
         },
       });
 
@@ -1307,7 +1305,6 @@ app.post("/login", async (req: FastifyRequest, reply: FastifyReply) => {
     const token = app.jwt.sign({
       id: user.id,
       email: user.email,
-      nome: user.nome,
       tipo: user.tipo
     }, {
       expiresIn: "7d"
@@ -1360,10 +1357,10 @@ app.post("/login", async (req: FastifyRequest, reply: FastifyReply) => {
           tipo: true,
           _count: {
             select: {
-              avaliacoes:true
+              avaliacao:true
             }
           },
-          pedidos: {
+          pedido: {
             select: {
               id: true,
               desconto: true,
@@ -1375,7 +1372,7 @@ app.post("/login", async (req: FastifyRequest, reply: FastifyReply) => {
               criadoEm: 'desc'
             }
           },
-          devolucoes: {
+          devolucao: {
             select: {
               id: true,
               aprovadoEm: true,
@@ -1429,7 +1426,6 @@ app.post("/login", async (req: FastifyRequest, reply: FastifyReply) => {
       const newToken = app.jwt.sign({
         id: user.id,
         email: user.email,
-        nome: user.nome,
         tipo: user.tipo
       });
 
