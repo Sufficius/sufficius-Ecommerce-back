@@ -5,7 +5,6 @@ import multipart from "@fastify/multipart";
 import swagger from "@fastify/swagger";
 import swaggerUI from "@fastify/swagger-ui";
 import * as dotenv from 'dotenv';
-import cors from "@fastify/cors";
 
 import authRoutes from "./modules/auth/auth.routes";
 import usuarioRoutes from "./modules/usuarios/usuarios.routes";
@@ -39,21 +38,96 @@ const app = Fastify({
     logger: loggerConfig
 });
 
+// ============================================
+// CORS MANUAL - SOLUÇÃO DEFINITIVA
+// ============================================
+
+// Lista de origens permitidas
+const allowedOrigins = [
+    'https://sufficius-ecommerce.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:8080',
+    'https://sufficius-ecommerce-back.onrender.com'
+];
+
+console.log('🌐 CORS Origins configurados:', allowedOrigins);
+
+// Hook para todas as requisições
+app.addHook('onRequest', (request, reply, done) => {
+    const origin = request.headers.origin;
+    
+    // Log para debug
+    console.log(`🌐 ${request.method} ${request.url} | Origin: ${origin || 'none'}`);
+    
+    // Se for preflight (OPTIONS), responder imediatamente
+    if (request.method === 'OPTIONS') {
+        // Permitir qualquer origem durante o desenvolvimento
+        if (origin && allowedOrigins.includes(origin)) {
+            reply.header('Access-Control-Allow-Origin', origin);
+            reply.header('Access-Control-Allow-Credentials', 'true');
+        } else {
+            // Em produção, seja mais restritivo
+            if (process.env.NODE_ENV === 'development') {
+                reply.header('Access-Control-Allow-Origin', origin || '*');
+            } else if (origin) {
+                reply.header('Access-Control-Allow-Origin', origin);
+            }
+        }
+        
+        reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+        reply.header('Access-Control-Allow-Headers', 
+            'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Access-Token, X-API-Key, Content-Type, Authorization');
+        reply.header('Access-Control-Allow-Credentials', 'true');
+        reply.header('Access-Control-Max-Age', '86400'); // 24 horas
+        
+        reply.status(204).send();
+        return;
+    }
+    
+    // Para requisições normais
+    if (origin && allowedOrigins.includes(origin)) {
+        reply.header('Access-Control-Allow-Origin', origin);
+        reply.header('Access-Control-Allow-Credentials', 'true');
+    } else if (origin && process.env.NODE_ENV === 'development') {
+        // Permite qualquer origem em desenvolvimento
+        reply.header('Access-Control-Allow-Origin', origin);
+    } else if (origin) {
+        console.log(`🚫 Origem bloqueada: ${origin}`);
+        // Não adiciona o header CORS para origens não permitidas
+    }
+    
+    done();
+});
+
+// Hook para respostas (garantir headers em todas as respostas)
+app.addHook('onSend', (request, reply, payload, done) => {
+    const origin = request.headers.origin;
+    
+    // Garantir que os headers CORS estão presentes em todas as respostas
+    if (origin && allowedOrigins.includes(origin)) {
+        reply.header('Access-Control-Allow-Origin', origin);
+        reply.header('Access-Control-Allow-Credentials', 'true');
+    } else if (origin && process.env.NODE_ENV === 'development') {
+        reply.header('Access-Control-Allow-Origin', origin);
+    }
+    
+    // Headers adicionais de segurança
+    reply.header('Access-Control-Expose-Headers', 'Content-Length, X-Total-Count, Authorization');
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('X-XSS-Protection', '1; mode=block');
+    
+    done();
+});
+
+// ============================================
+// FIM DO CORS MANUAL
+// ============================================
+
 // Hook para debug das rotas
 app.addHook('onRoute', (routeOptions) => {
     // console.log(`✅ Rota registrada: ${routeOptions.method} ${routeOptions.url}`);
-});
-
-// Configurar CORS
-const corsOrigins = process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(',').map((o: string) => o.trim())
-    : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080', 'https://sufficius-ecommerce.vercel.app', 'https://sufficius-ecommerce-back.onrender.com'];
-
-app.register(cors, {
-    origin: corsOrigins,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-Access-Token', 'X-API-Key']
 });
 
 // Registrar plugins
@@ -76,8 +150,10 @@ app.register(swagger, {
             description: 'API para a Sufficius E-commerce',
             version: process.env.API_VERSION || '1.0.0'
         },
-        host: `localhost:${process.env.PORT || 3000}`,
-        schemes: ['http', 'https'],
+        host: process.env.NODE_ENV === 'production' 
+            ? 'sufficius-ecommerce-back.onrender.com'
+            : `localhost:${process.env.PORT || 3000}`,
+        schemes: process.env.NODE_ENV === 'production' ? ['https'] : ['http', 'https'],
         consumes: ['application/json'],
         produces: ['application/json'],
         securityDefinitions: {
@@ -111,7 +187,6 @@ app.register(produtosRoutes, { prefix: '/produtos' });
 app.register(pedidosRoutes, { prefix: `/pedidos` });
 app.register(categoriasRoutes, { prefix: `/categorias` });
 
-
 // Comente se não for necessário ou ajuste o prefixo
 // app.register(servicoRoutes, { prefix: `/servicos` });
 
@@ -120,9 +195,8 @@ const listRoutes = () => {
     console.log('\n📋 TODAS AS ROTAS REGISTRADAS:');
     console.log('================================');
 
-    const routes = app.printRoutes();
-    console.log(routes);
-
+    // const routes = app.printRoutes();
+    // console.log(routes);
     console.log('================================\n');
 };
 
@@ -165,7 +239,8 @@ app.get('/health', async () => ({
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     version: process.env.API_VERSION || '1.0.0',
-    service: 'Sufficius API'
+    service: 'Sufficius API',
+    corsConfigured: true
 }));
 
 app.get('/', async () => ({
@@ -173,12 +248,20 @@ app.get('/', async () => ({
     version: process.env.API_VERSION || '1.0.0',
     environment: process.env.NODE_ENV || 'development',
     docs: '/docs',
-    health: '/health'
+    health: '/health',
+    cors: 'CORS manual configurado'
 }));
 
 // Error handler global
 app.setErrorHandler(function (error, request, reply) {
     console.error('🔥 Error handler:', error);
+
+    // Adicionar headers CORS mesmo em erros
+    const origin = request.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        reply.header('Access-Control-Allow-Origin', origin);
+        reply.header('Access-Control-Allow-Credentials', 'true');
+    }
 
     if (error.validation) {
         return reply.status(400).send({
@@ -196,40 +279,20 @@ app.setErrorHandler(function (error, request, reply) {
 
 // Not found handler
 app.setNotFoundHandler(function (request, reply) {
+    // Adicionar headers CORS mesmo em 404
+    const origin = request.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        reply.header('Access-Control-Allow-Origin', origin);
+        reply.header('Access-Control-Allow-Credentials', 'true');
+    }
+    
     reply.status(404).send({
         success: false,
         error: 'Rota não encontrada',
-        path: request.url
+        path: request.url,
+        availableRoutes: app.printRoutes().split('\n').slice(0, 10) // Mostra 10 primeiras rotas
     });
 });
 
-// Função para iniciar o servidor
-const start = async () => {
-    try {
-        // Registrar rotas dinâmicas
-        await registerDynamicRoutes();
-
-        // Aguardar o servidor estar pronto
-        await app.ready();
-
-        // Listar rotas registradas
-        listRoutes();
-
-        // Iniciar servidor
-        const port = parseInt(process.env.PORT || '3000');
-        const host = process.env.HOST || '0.0.0.0';
-
-        await app.listen({
-            port,
-            host
-        });
-    } catch (err) {
-        console.error('❌ Erro ao iniciar servidor:', err);
-        process.exit(1);
-    }
-};
-
-// Iniciar servidor
-// start();
 
 export default app;
