@@ -38,7 +38,7 @@ async function setupDatabase() {
     const prisma = new PrismaClient();
     
     // Usar variáveis de ambiente - SEGURO!
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@sufficius.com';
+    const adminEmail = process.env.ADMIN_EMAIL || 'andrescorporate1@gmail.com';
     const adminPassword = process.env.ADMIN_PASSWORD;
     
     if (!adminPassword) {
