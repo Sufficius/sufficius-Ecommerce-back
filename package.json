@@ -11,7 +11,9 @@
     "build": "npm run prisma:generate && tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/server.js",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+     "render-build": "npm ci --only=production && npm run prisma:generate && npm run prisma:migrate && npm run build",
+    "render-start": "node dist/server.js"
   },
    "prisma": {
     "schema": "prisma/schema.prisma"
