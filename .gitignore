@@ -51,3 +51,4 @@ coverage/
 scripts/setup-database.js
 # Ou para ignorar toda a pasta scripts:
 scripts/
+scripts/setup-database.js
