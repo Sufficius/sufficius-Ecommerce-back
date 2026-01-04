@@ -51,14 +51,9 @@ const allowedOrigins = [
     'https://sufficius-ecommerce-back.onrender.com'
 ];
 
-console.log('🌐 CORS Origins configurados:', allowedOrigins);
-
 // Hook para todas as requisições
 app.addHook('onRequest', (request, reply, done) => {
     const origin = request.headers.origin;
-    
-    // Log para debug
-    console.log(`🌐 ${request.method} ${request.url} | Origin: ${origin || 'none'}`);
     
     // Se for preflight (OPTIONS), responder imediatamente
     if (request.method === 'OPTIONS') {

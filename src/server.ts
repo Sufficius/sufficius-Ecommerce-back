@@ -43,6 +43,22 @@ app.listen({
   console.log(`🏥 Health check: ${address}/health`);
   console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
   
+  if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+  console.log('🔧 Modo desenvolvimento - .env carregado');
+} else {
+  console.log('🚀 Modo produção - usando variáveis de ambiente do Render');
+}
+
+const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET', 'PORT'];
+requiredEnvVars.forEach(varName => {
+  if (!process.env[varName]) {
+    console.error(`❌ Variável de ambiente obrigatória não definida: ${varName}`);
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
+  }
+});
   // Mostrar variáveis carregadas (em desenvolvimento)
   if (process.env.NODE_ENV === 'development') {
     console.log('\n📋 Variáveis de ambiente carregadas:');
