@@ -223,12 +223,6 @@ const start = async () => {
             port,
             host
         });
-
-        console.log(`🚀 Servidor rodando em http://${host}:${port}`);
-        console.log(`📚 Documentação: http://${host}:${port}/docs`);
-        console.log(`🏥 Health check: http://${host}:${port}/health`);
-        console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-
     } catch (err) {
         console.error('❌ Erro ao iniciar servidor:', err);
         process.exit(1);

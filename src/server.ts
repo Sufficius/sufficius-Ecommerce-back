@@ -15,12 +15,6 @@ if (envResult.error) {
   dotenv.config();
 }
 
-// DEBUG: Verificar se as variáveis estão carregadas
-console.log('🔍 Verificando variáveis de ambiente:');
-console.log('   PORT:', process.env.PORT);
-console.log('   JWT_SECRET:', process.env.JWT_SECRET ? '*** (disponível)' : '❌ NÃO ENCONTRADO');
-console.log('   NODE_ENV:', process.env.NODE_ENV);
-
 
 // Verificar variáveis críticas
 if (!process.env.JWT_SECRET) {
