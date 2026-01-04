@@ -1,47 +1,23 @@
 import { FastifyInstance } from 'fastify';
-import { UsuariosController } from './usuarios.controller';
+import {UsuariosController} from './usuarios.controller';
 
 const usuariosController = new UsuariosController();
 
-export async function usuariosRoutes(fastify: FastifyInstance) {
+export default async function usuariosRoutes(fastify: FastifyInstance) {
   // Rotas públicas
-  fastify.post(
-    '/usuarios',
-    usuariosController.criarUsuario
-  );
-
-  fastify.post(
-    '/usuarios/login',
-    usuariosController.login
-  );
+  fastify.post('/', usuariosController.criarUsuario.bind(usuariosController));
+  fastify.post('/login', usuariosController.login.bind(usuariosController));
 
   // Rotas protegidas por autenticação
-  fastify.get(
-    '/usuarios/perfil',
-    usuariosController.obterPerfil
-  );
+  fastify.get('/perfil', usuariosController.obterPerfil.bind(usuariosController));
 
-  // Rotas protegidas por autenticação e autorização (apenas admin)
-  fastify.get(
-    '/usuarios',
-    usuariosController.listarUsuarios
-  );
+  // Rotas de CRUD
+  fastify.get('/', usuariosController.listarUsuarios.bind(usuariosController));
+  fastify.get('/:id', usuariosController.obterUsuarioPorId.bind(usuariosController));
+  fastify.put('/:id', usuariosController.atualizarUsuario.bind(usuariosController));
+  fastify.delete('/:id', usuariosController.deletarUsuario.bind(usuariosController));
 
-  fastify.get(
-    '/usuarios/:id',
-    usuariosController.obterUsuarioPorId
-  );
-
-  fastify.put(
-    '/usuarios/:id',
-    usuariosController.atualizarUsuario
-  );
-
-  fastify.delete(
-    '/usuarios/:id',
-    usuariosController.deletarUsuario
-  );
+  // Rotas adicionais
+  fastify.put('/:id/status', usuariosController.alterarStatusUsuario.bind(usuariosController));
+  fastify.post('/:id/resetar-senha', usuariosController.resetarSenha.bind(usuariosController));
 }
-
-// Exportando o plugin
-export default usuariosRoutes;

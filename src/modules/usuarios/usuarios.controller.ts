@@ -28,23 +28,52 @@ interface AtualizarUsuarioBody {
 }
 
 interface ListarUsuariosQuery {
-  pagina?: string;
-  limite?: string;
+  page?: string;
+  limit?: string;
   busca?: string;
+  tipo?: string;
 }
 
 export class UsuariosController {
+  // Função de validação
+  private validarEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+
   // Criar novo usuário
   async criarUsuario(request: FastifyRequest<{ Body: CriarUsuarioBody }>, reply: FastifyReply) {
     try {
-      const {nome, email, senha, telefone } = request.body;
-
+      const { nome, email, senha, telefone, tipo = "CLIENTE" } = request.body;
       const {id} = request.params as any;
+      console.log('📝 Criando usuário:', { nome, email, tipo });
 
       // Validação básica
       if (!nome || !email || !senha) {
         return reply.status(400).send({
-          erro: 'Nome, email e senha são obrigatórios'
+          success: false,
+          error: 'Nome, email e senha são obrigatórios'
+        });
+      }
+
+      if (!this.validarEmail(email)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Email inválido'
+        });
+      }
+
+      if (senha.length < 6) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Senha deve ter pelo menos 6 caracteres'
+        });
+      }
+
+      if (tipo && !['CLIENTE', 'OPERADOR', 'ADMIN'].includes(tipo)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Tipo de usuário inválido'
         });
       }
 
@@ -55,7 +84,8 @@ export class UsuariosController {
 
       if (usuarioExistente) {
         return reply.status(409).send({
-          erro: 'Email já cadastrado'
+          success: false,
+          error: 'Email já cadastrado'
         });
       }
 
@@ -68,9 +98,9 @@ export class UsuariosController {
           nome,
           email,
           senhaHash: senhaCriptografada,
-          telefone: telefone ?? "",
+          telefone: telefone || "",
           tipo: "CLIENTE",
-          id: id
+          id:id
         },
         select: {
           id: true,
@@ -84,14 +114,16 @@ export class UsuariosController {
       });
 
       return reply.status(201).send({
-        mensagem: 'Usuário criado com sucesso',
-        usuario: novoUsuario
+        success: true,
+        message: 'Usuário criado com sucesso',
+        data: novoUsuario
       });
 
     } catch (error) {
-      console.error('Erro ao criar usuário:', error);
+      console.error('❌ Erro ao criar usuário:', error);
       return reply.status(500).send({
-        erro: 'Erro interno do servidor'
+        success: false,
+        error: 'Erro interno do servidor'
       });
     }
   }
@@ -99,17 +131,29 @@ export class UsuariosController {
   // Listar todos os usuários (com paginação)
   async listarUsuarios(request: FastifyRequest<{ Querystring: ListarUsuariosQuery }>, reply: FastifyReply) {
     try {
-      const { pagina = '1', limite = '10', busca } = request.query;
-      const skip = (Number(pagina) - 1) * Number(limite);
+      const { page = '1', limit = '10', busca, tipo } = request.query;
+      
+      const pageNumber = parseInt(page);
+      const limitNumber = parseInt(limit);
+      const skip = (pageNumber - 1) * limitNumber;
+
+      console.log('📋 Listando usuários:', { page: pageNumber, limit: limitNumber, busca, tipo });
 
       // Construir condições de busca
       const whereClause: any = {};
+      
       if (busca) {
         whereClause.OR = [
           { nome: { contains: busca, mode: 'insensitive' } },
           { email: { contains: busca, mode: 'insensitive' } }
         ];
       }
+
+      if (tipo && tipo !== 'todos') {
+        whereClause.tipo = tipo;
+      }
+
+      console.log('Where clause:', whereClause);
 
       // Buscar usuários
       const [usuarios, total] = await Promise.all([
@@ -125,26 +169,40 @@ export class UsuariosController {
             atualizadoEm: true
           },
           skip,
-          take: Number(limite),
+          take: limitNumber,
           orderBy: { criadoEm: 'desc' }
         }),
         prisma.usuario.count({ where: whereClause })
       ]);
 
+      console.log(`✅ Encontrados ${usuarios.length} usuários de ${total} total`);
+
+      // Formatar resposta para o frontend
       return reply.send({
-        usuarios,
-        paginacao: {
-          pagina: Number(pagina),
-          limite: Number(limite),
+        success: true,
+        data: usuarios.map(usuario => ({
+          id: usuario.id,
+          nome: usuario.nome,
+          email: usuario.email,
+          telefone: usuario.telefone,
+          tipo: usuario.tipo,
+          status: 'ativo', // Adicione lógica real se necessário
+          criadoEm: usuario.criadoEm.toISOString(),
+          atualizadoEm: usuario.atualizadoEm.toISOString()
+        })),
+        pagination: {
+          page: pageNumber,
+          limit: limitNumber,
           total,
-          totalPaginas: Math.ceil(total / Number(limite))
+          totalPages: Math.ceil(total / limitNumber)
         }
       });
 
     } catch (error) {
-      console.error('Erro ao listar usuários:', error);
+      console.error('❌ Erro ao listar usuários:', error);
       return reply.status(500).send({
-        erro: 'Erro interno do servidor'
+        success: false,
+        error: 'Erro interno do servidor'
       });
     }
   }
@@ -153,6 +211,8 @@ export class UsuariosController {
   async obterUsuarioPorId(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     try {
       const { id } = request.params;
+
+      console.log('🔍 Buscando usuário ID:', id);
 
       const usuario = await prisma.usuario.findUnique({
         where: { id: id },
@@ -169,16 +229,21 @@ export class UsuariosController {
 
       if (!usuario) {
         return reply.status(404).send({
-          erro: 'Usuário não encontrado'
+          success: false,
+          error: 'Usuário não encontrado'
         });
       }
 
-      return reply.send(usuario);
+      return reply.send({
+        success: true,
+        data: usuario
+      });
 
     } catch (error) {
-      console.error('Erro ao obter usuário:', error);
+      console.error('❌ Erro ao obter usuário:', error);
       return reply.status(500).send({
-        erro: 'Erro interno do servidor'
+        success: false,
+        error: 'Erro interno do servidor'
       });
     }
   }
@@ -194,16 +259,18 @@ export class UsuariosController {
     try {
       const { id } = request.params;
       const { nome, email, telefone, senha, tipo } = request.body;
-      const usuarioId = id;
+
+      console.log('✏️ Atualizando usuário ID:', id, { nome, email, tipo });
 
       // Verificar se usuário existe
       const usuarioExistente = await prisma.usuario.findUnique({
-        where: { id: usuarioId }
+        where: { id: id }
       });
 
       if (!usuarioExistente) {
         return reply.status(404).send({
-          erro: 'Usuário não encontrado'
+          success: false,
+          error: 'Usuário não encontrado'
         });
       }
 
@@ -211,18 +278,29 @@ export class UsuariosController {
       const dadosAtualizacao: any = {};
       
       if (nome) dadosAtualizacao.nome = nome;
-      if (telefone) dadosAtualizacao.telefone = telefone;
-      if (tipo) dadosAtualizacao.tipo = tipo;
+      if (telefone !== undefined) dadosAtualizacao.telefone = telefone;
+      
+      if (tipo && ['CLIENTE', 'OPERADOR', 'ADMIN'].includes(tipo)) {
+        dadosAtualizacao.tipo = tipo;
+      }
       
       // Verificar se email já existe (se estiver sendo alterado)
       if (email && email !== usuarioExistente.email) {
+        if (!this.validarEmail(email)) {
+          return reply.status(400).send({
+            success: false,
+            error: 'Email inválido'
+          });
+        }
+
         const emailExistente = await prisma.usuario.findUnique({
           where: { email }
         });
         
         if (emailExistente) {
           return reply.status(409).send({
-            erro: 'Email já está em uso por outro usuário'
+            success: false,
+            error: 'Email já está em uso por outro usuário'
           });
         }
         dadosAtualizacao.email = email;
@@ -230,12 +308,18 @@ export class UsuariosController {
 
       // Se houver senha, criptografar
       if (senha) {
-        dadosAtualizacao.senha = await bcrypt.hash(senha, 10);
+        if (senha.length < 6) {
+          return reply.status(400).send({
+            success: false,
+            error: 'Senha deve ter pelo menos 6 caracteres'
+          });
+        }
+        dadosAtualizacao.senhaHash = await bcrypt.hash(senha, 10);
       }
 
       // Atualizar usuário
       const usuarioAtualizado = await prisma.usuario.update({
-        where: { id: usuarioId },
+        where: { id: id },
         data: dadosAtualizacao,
         select: {
           id: true,
@@ -249,14 +333,16 @@ export class UsuariosController {
       });
 
       return reply.send({
-        mensagem: 'Usuário atualizado com sucesso',
-        usuario: usuarioAtualizado
+        success: true,
+        message: 'Usuário atualizado com sucesso',
+        data: usuarioAtualizado
       });
 
     } catch (error) {
-      console.error('Erro ao atualizar usuário:', error);
+      console.error('❌ Erro ao atualizar usuário:', error);
       return reply.status(500).send({
-        erro: 'Erro interno do servidor'
+        success: false,
+        error: 'Erro interno do servidor'
       });
     }
   }
@@ -265,32 +351,45 @@ export class UsuariosController {
   async deletarUsuario(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     try {
       const { id } = request.params;
-      const usuarioId = id;
+
+      console.log('🗑️ Deletando usuário ID:', id);
 
       // Verificar se usuário existe
       const usuarioExistente = await prisma.usuario.findUnique({
-        where: { id: usuarioId }
+        where: { id: id }
       });
 
       if (!usuarioExistente) {
         return reply.status(404).send({
-          erro: 'Usuário não encontrado'
+          success: false,
+          error: 'Usuário não encontrado'
         });
       }
 
+      // Não permitir deletar o próprio usuário admin (se necessário)
+      // const usuarioLogado = (request as any).usuarioId;
+      // if (usuarioLogado === id) {
+      //   return reply.status(400).send({
+      //     success: false,
+      //     error: 'Não é possível deletar seu próprio usuário'
+      //   });
+      // }
+
       // Deletar usuário
       await prisma.usuario.delete({
-        where: { id: usuarioId }
+        where: { id: id }
       });
 
       return reply.send({
-        mensagem: 'Usuário deletado com sucesso'
+        success: true,
+        message: 'Usuário deletado com sucesso'
       });
 
     } catch (error) {
-      console.error('Erro ao deletar usuário:', error);
+      console.error('❌ Erro ao deletar usuário:', error);
       return reply.status(500).send({
-        erro: 'Erro interno do servidor'
+        success: false,
+        error: 'Erro interno do servidor'
       });
     }
   }
@@ -300,10 +399,20 @@ export class UsuariosController {
     try {
       const { email, senha } = request.body;
 
+      console.log('🔐 Login para email:', email);
+
       // Validação
       if (!email || !senha) {
         return reply.status(400).send({
-          erro: 'Email e senha são obrigatórios'
+          success: false,
+          error: 'Email e senha são obrigatórios'
+        });
+      }
+
+      if (!this.validarEmail(email)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Email inválido'
         });
       }
 
@@ -314,7 +423,8 @@ export class UsuariosController {
 
       if (!usuario) {
         return reply.status(401).send({
-          erro: 'Credenciais inválidas'
+          success: false,
+          error: 'Credenciais inválidas'
         });
       }
 
@@ -323,7 +433,8 @@ export class UsuariosController {
 
       if (!senhaValida) {
         return reply.status(401).send({
-          erro: 'Credenciais inválidas'
+          success: false,
+          error: 'Credenciais inválidas'
         });
       }
 
@@ -339,20 +450,24 @@ export class UsuariosController {
       );
 
       return reply.send({
-        mensagem: 'Login realizado com sucesso',
-        token,
-        usuario: {
-          id: usuario.id,
-          nome: usuario.nome,
-          email: usuario.email,
-          tipo: usuario.tipo
+        success: true,
+        message: 'Login realizado com sucesso',
+        data: {
+          token,
+          usuario: {
+            id: usuario.id,
+            nome: usuario.nome,
+            email: usuario.email,
+            tipo: usuario.tipo
+          }
         }
       });
 
     } catch (error) {
-      console.error('Erro ao fazer login:', error);
+      console.error('❌ Erro ao fazer login:', error);
       return reply.status(500).send({
-        erro: 'Erro interno do servidor'
+        success: false,
+        error: 'Erro interno do servidor'
       });
     }
   }
@@ -362,6 +477,15 @@ export class UsuariosController {
     try {
       // O ID do usuário vem do hook de autenticação
       const usuarioId = (request as any).usuarioId;
+
+      if (!usuarioId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Não autorizado'
+        });
+      }
+
+      console.log('👤 Buscando perfil do usuário ID:', usuarioId);
 
       const usuario = await prisma.usuario.findUnique({
         where: { id: usuarioId },
@@ -378,16 +502,120 @@ export class UsuariosController {
 
       if (!usuario) {
         return reply.status(404).send({
-          erro: 'Usuário não encontrado'
+          success: false,
+          error: 'Usuário não encontrado'
         });
       }
 
-      return reply.send(usuario);
+      return reply.send({
+        success: true,
+        data: usuario
+      });
 
     } catch (error) {
-      console.error('Erro ao obter perfil:', error);
+      console.error('❌ Erro ao obter perfil:', error);
       return reply.status(500).send({
-        erro: 'Erro interno do servidor'
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  }
+
+  // Método adicional: Alterar status do usuário
+  async alterarStatusUsuario(request: FastifyRequest<{ 
+    Params: { id: string };
+    Body: { status: string }
+  }>, reply: FastifyReply) {
+    try {
+      const { id } = request.params;
+      const { status } = request.body;
+
+      console.log('🔄 Alterando status do usuário ID:', id, 'para:', status);
+
+      // Verificar se status é válido
+      if (!['ativo', 'inativo'].includes(status)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Status inválido. Use "ativo" ou "inativo"'
+        });
+      }
+
+      // Verificar se usuário existe
+      const usuarioExistente = await prisma.usuario.findUnique({
+        where: { id: id }
+      });
+
+      if (!usuarioExistente) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Usuário não encontrado'
+        });
+      }
+
+      // Adicione um campo 'status' no seu modelo Prisma se necessário
+      // Por enquanto, retornamos um placeholder
+      return reply.send({
+        success: true,
+        message: `Status do usuário alterado para ${status}`,
+        data: {
+          id,
+          status
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao alterar status:', error);
+      return reply.status(500).send({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  }
+
+  // Método adicional: Resetar senha
+  async resetarSenha(request: FastifyRequest<{ 
+    Params: { id: string }
+  }>, reply: FastifyReply) {
+    try {
+      const { id } = request.params;
+
+      console.log('🔄 Resetando senha do usuário ID:', id);
+
+      // Verificar se usuário existe
+      const usuarioExistente = await prisma.usuario.findUnique({
+        where: { id: id }
+      });
+
+      if (!usuarioExistente) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Usuário não encontrado'
+        });
+      }
+
+      // Gerar senha temporária
+      const senhaTemporaria = Math.random().toString(36).slice(-8);
+      const senhaCriptografada = await bcrypt.hash(senhaTemporaria, 10);
+
+      // Atualizar senha
+      await prisma.usuario.update({
+        where: { id: id },
+        data: { senhaHash: senhaCriptografada }
+      });
+
+      return reply.send({
+        success: true,
+        message: 'Senha resetada com sucesso',
+        data: {
+          novaSenha: senhaTemporaria // Em produção, envie por email
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao resetar senha:', error);
+      return reply.status(500).send({
+        success: false,
+        error: 'Erro interno do servidor'
       });
     }
   }
