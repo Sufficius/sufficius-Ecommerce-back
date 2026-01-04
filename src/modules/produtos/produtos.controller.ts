@@ -217,11 +217,15 @@ export class ProdutosController {
     reply: FastifyReply
   ) {
     try {
-      console.log('📦 Recebendo requisição para criar produto...');
+       console.log('📦 Recebendo requisição para criar produto...');
+    console.log('📋 Content-Type:', request.headers['content-type']);
       
       // Verificar se é multipart/form-data
       const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
-      
+       console.log('🔍 É multipart?', isMultipart);
+
+       console.log('🔄 Iniciando processamento multipart...');
+
       let dados: any = {};
       let imagemFile: any = null;
       
@@ -240,7 +244,9 @@ export class ProdutosController {
           }
         }
       } else {
+        console.log('⚠️  Não é multipart, tentando como JSON');
         dados = request.body as any;
+        console.log('📄 Dados JSON:', dados);
       }
       
       console.log('📄 Dados recebidos:', dados);
