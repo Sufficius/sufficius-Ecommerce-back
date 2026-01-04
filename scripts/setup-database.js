@@ -39,7 +39,7 @@ async function setupDatabase() {
     
     // Usar variáveis de ambiente - SEGURO!
     const adminEmail = process.env.ADMIN_EMAIL || 'andrescorporate1@gmail.com';
-    const adminPassword = process.env.ADMIN_PASSWORD;
+    const adminPassword = process.env.ADMIN_PASSWORD || bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
     
     if (!adminPassword) {
       console.log('⚠️  ADMIN_PASSWORD não definida');
