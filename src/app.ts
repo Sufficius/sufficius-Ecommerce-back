@@ -5,14 +5,15 @@ import multipart from "@fastify/multipart";
 import swagger from "@fastify/swagger";
 import swaggerUI from "@fastify/swagger-ui";
 import * as dotenv from 'dotenv';
+import fastifyStatic from "@fastify/static"
 
 import authRoutes from "./modules/auth/auth.routes";
 import usuarioRoutes from "./modules/usuarios/usuarios.routes";
-import servicoRoutes from "./services/service.routes";
 import vendasRoutes from "./modules/vendas/vendas.routes";
 import produtosRoutes from "./modules/produtos/produtos.routes";
 import pedidosRoutes from "./modules/pedidos/pedidos.routes";
 import categoriasRoutes from "./modules/categorias/categorias.routes";
+import path from "path";
 
 dotenv.config();
 
@@ -133,10 +134,16 @@ app.register(jwt, {
 app.register(multipart, {
     limits: {
         fileSize: 10 * 1024 * 1024, // 10MB
-        files: 5
+        files: 1
     }
 });
 
+
+app.register(fastifyStatic, {
+  root: path.join(process.cwd(), 'uploads'),
+  prefix: '/uploads/',
+  decorateReply: false
+});
 // Swagger/OpenAPI
 app.register(swagger, {
     swagger: {

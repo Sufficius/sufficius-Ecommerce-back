@@ -76,43 +76,7 @@ interface BuscarProdutoPorIdRoute {
   };
 }
 
-interface CriarProdutoRoute {
-  Body: {
-    nome: string;
-    descricao: string;
-    preco: number;
-    precoDesconto?: number;
-    percentualDesconto?: number;
-    descontoAte?: string;
-    estoque: number;
-    sku: string;
-    categoriaId?: string;
-    ativo?: boolean;
-    emDestaque?: boolean;
-    imagens?: Array<{
-      url: string;
-      alt?: string;
-      principal?: boolean;
-    }>;
-    variacoes?: Array<{
-      nome: string;
-      preco: number;
-      estoque: number;
-      sku: string;
-    }>;
-  };
-  Reply: {
-    201: {
-      success: boolean;
-      message: string;
-      data: any;
-    };
-    400: {
-      success: boolean;
-      message: string;
-    };
-  };
-}
+// REMOVA a interface CriarProdutoRoute pois vamos usar multipart
 
 interface AtualizarProdutoRoute {
   Params: { id: string };
@@ -346,8 +310,8 @@ export default async function produtosRoutes(app: FastifyInstance) {
 
   // Rotas protegidas (apenas admin)
 
-  // Criar produto
-  app.post<CriarProdutoRoute>(
+  // Criar produto - ROTA MODIFICADA PARA MULTIPART (sem schema.body)
+  app.post(
     '/',
     {
       preHandler: [authenticate, isAdmin],
@@ -355,46 +319,7 @@ export default async function produtosRoutes(app: FastifyInstance) {
         tags: ['Produtos'],
         summary: 'Criar novo produto (apenas admin)',
         security: [{ bearerAuth: [] }],
-        body: {
-          type: 'object',
-          required: ['nome', 'descricao', 'preco', 'estoque', 'sku'],
-          properties: {
-            nome: { type: 'string' },
-            descricao: { type: 'string' },
-            preco: { type: 'number', minimum: 0 },
-            precoDesconto: { type: 'number', minimum: 0 },
-            percentualDesconto: { type: 'number', minimum: 0, maximum: 100 },
-            descontoAte: { type: 'string', format: 'date-time' },
-            estoque: { type: 'integer', minimum: 0 },
-            sku: { type: 'string' },
-            categoriaId: { type: 'string' },
-            ativo: { type: 'boolean' },
-            emDestaque: { type: 'boolean' },
-            imagens: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  url: { type: 'string' },
-                  alt: { type: 'string' },
-                  principal: { type: 'boolean' }
-                }
-              }
-            },
-            variacoes: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  nome: { type: 'string' },
-                  preco: { type: 'number' },
-                  estoque: { type: 'integer' },
-                  sku: { type: 'string' }
-                }
-              }
-            }
-          }
-        },
+        consumes: ['multipart/form-data'], // Importante!
         response: {
           201: {
             type: 'object',
