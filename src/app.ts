@@ -47,7 +47,7 @@ app.addHook('onRoute', (routeOptions) => {
 // Configurar CORS
 const corsOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o: string) => o.trim())
-    : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080', 'https://sufficius-ecommerce.vercel.app'];
+    : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080', 'https://sufficius-ecommerce.vercel.app', 'https://sufficius-ecommerce-back.onrender.com'];
 
 app.register(cors, {
     origin: corsOrigins,
