@@ -47,8 +47,3 @@ coverage/
 # Backup files
 *.backup
 
-# No seu arquivo .gitignore, adicione:
-scripts/setup-database.js
-# Ou para ignorar toda a pasta scripts:
-scripts/
-scripts/setup-database.js
