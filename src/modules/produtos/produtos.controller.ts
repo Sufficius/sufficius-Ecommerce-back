@@ -18,14 +18,38 @@ if (!fs.existsSync(uploadDir)) {
 async function saveFile(file: any, produtoId: string) {
   const filename = `${produtoId}-${randomUUID()}${path.extname(file.filename)}`;
   const filepath = path.join(uploadDir, filename);
-  
+
   await pipeline(file.file, fs.createWriteStream(filepath));
-  
+
   return {
     filename,
     filepath,
     url: `/uploads/${filename}`
   };
+}
+
+// Função auxiliar para deletar arquivos físicos
+async function deleteProductFiles(produtoId: string) {
+  try {
+    // Buscar todas as imagens do produto
+    const imagens = await prisma.imagemproduto.findMany({
+      where: { produtoId }
+    });
+
+    // Deletar arquivos físicos
+    for (const imagem of imagens) {
+      const filepath = path.join(uploadDir, path.basename(imagem.url));
+      if (fs.existsSync(filepath)) {
+        fs.unlinkSync(filepath);
+        console.log(`🗑️  Arquivo deletado: ${filepath}`);
+      }
+    }
+
+    return imagens.length;
+  } catch (error) {
+    console.error('⚠️  Erro ao deletar arquivos físicos:', error);
+    return 0;
+  }
 }
 
 export class ProdutosController {
@@ -217,18 +241,18 @@ export class ProdutosController {
     reply: FastifyReply
   ) {
     try {
-       console.log('📦 Recebendo requisição para criar produto...');
-    console.log('📋 Content-Type:', request.headers['content-type']);
-      
+      console.log('📦 Recebendo requisição para criar produto...');
+      console.log('📋 Content-Type:', request.headers['content-type']);
+
       // Verificar se é multipart/form-data
       const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
-       console.log('🔍 É multipart?', isMultipart);
+      console.log('🔍 É multipart?', isMultipart);
 
-       console.log('🔄 Iniciando processamento multipart...');
+      console.log('🔄 Iniciando processamento multipart...');
 
       let dados: any = {};
       let imagemFile: any = null;
-      
+
       if (isMultipart) {
         const parts = request.parts();
         for await (const part of parts) {
@@ -248,7 +272,7 @@ export class ProdutosController {
         dados = request.body as any;
         console.log('📄 Dados JSON:', dados);
       }
-      
+
       console.log('📄 Dados recebidos:', dados);
       console.log('📁 Imagem recebida:', imagemFile ? 'Sim' : 'Não');
 
@@ -324,7 +348,7 @@ export class ProdutosController {
       if (imagemFile) {
         try {
           const savedFile = await saveFile(imagemFile, produto.id);
-          
+
           await prisma.imagemproduto.create({
             data: {
               id: randomUUID(),
@@ -334,7 +358,7 @@ export class ProdutosController {
               principal: true
             }
           });
-          
+
           console.log('✅ Imagem salva:', savedFile.url);
         } catch (imageError) {
           console.error('⚠️ Erro ao salvar imagem:', imageError);
@@ -361,7 +385,7 @@ export class ProdutosController {
 
     } catch (error: any) {
       console.error('❌ Erro ao criar produto:', error);
-      
+
       // Erros específicos do Prisma
       if (error.code === 'P2002') {
         return reply.status(400).send({
@@ -369,7 +393,7 @@ export class ProdutosController {
           message: 'SKU já está em uso'
         });
       }
-      
+
       reply.status(500).send({
         success: false,
         message: 'Erro interno ao criar produto',
@@ -379,31 +403,22 @@ export class ProdutosController {
   }
 
   async atualizarProduto(
-    request: FastifyRequest<{
-      Params: { id: string };
-      Body: {
-        nome?: string;
-        descricao?: string;
-        preco?: number;
-        precoDesconto?: number | null;
-        percentualDesconto?: number | null;
-        descontoAte?: string | null;
-        estoque?: number;
-        sku?: string;
-        categoriaId?: string | null;
-        ativo?: boolean;
-        emDestaque?: boolean;
-      }
-    }>,
+    request: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply
   ) {
     try {
+      console.log('🔄 Recebendo requisição para atualizar produto...');
+      console.log('📋 Content-Type:', request.headers['content-type']);
+
       const { id } = request.params;
-      const dados = request.body;
 
       // Verificar se produto existe
       const produtoExistente = await prisma.produto.findUnique({
-        where: { id }
+        where: { id },
+        include: {
+          categoria: true,
+          imagemproduto: true
+        }
       });
 
       if (!produtoExistente) {
@@ -412,6 +427,46 @@ export class ProdutosController {
           message: 'Produto não encontrado'
         });
       }
+
+      // Verificar se é multipart/form-data
+      const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
+      console.log('🔍 É multipart?', isMultipart);
+
+      let dados: any = {};
+      let imagemFile: any = null;
+      let deletarImagem = false;
+
+      if (isMultipart) {
+        console.log('🔄 Processando dados multipart...');
+        const parts = request.parts();
+        for await (const part of parts) {
+          if (part.type === 'file') {
+            imagemFile = part;
+            console.log('📁 Arquivo recebido:', part.filename);
+          } else {
+            console.log(`📝 Campo ${part.fieldname}: ${part.value}`);
+
+            // Converter valores para tipos apropriados
+            if (part.fieldname === 'ativo' || part.fieldname === 'emDestaque') {
+              dados[part.fieldname] = part.value === 'true' || part.value === '1';
+            } else if (part.fieldname === 'preco' || part.fieldname === 'precoDesconto' ||
+              part.fieldname === 'percentualDesconto' || part.fieldname === 'estoque') {
+              dados[part.fieldname] = part.value ? part.value : null;
+            } else if (part.fieldname === 'deletarImagem') {
+              deletarImagem = part.value === 'true';
+            } else {
+              dados[part.fieldname] = part.value;
+            }
+          }
+        }
+      } else {
+        console.log('📄 Processando dados JSON');
+        dados = request.body as any;
+      }
+
+      console.log('📊 Dados processados:', dados);
+      console.log('🖼️  Nova imagem?', imagemFile ? 'Sim' : 'Não');
+      console.log('🗑️  Deletar imagem?', deletarImagem);
 
       // Verificar se novo SKU já existe (se for alterado)
       if (dados.sku && dados.sku !== produtoExistente.sku) {
@@ -427,33 +482,156 @@ export class ProdutosController {
         }
       }
 
+      // Verificar se categoria existe (se fornecida)
+      if (dados.categoriaId) {
+        const categoria = await prisma.categoria.findUnique({
+          where: { id: dados.categoriaId }
+        });
+
+        if (!categoria) {
+          return reply.status(400).send({
+            success: false,
+            message: 'Categoria não encontrada'
+          });
+        }
+      }
+
       // Calcular percentual de desconto se alterado
       let percentualDesconto = dados.percentualDesconto;
       if (dados.precoDesconto !== undefined && !percentualDesconto && dados.precoDesconto !== null) {
         const precoBase = dados.preco || produtoExistente.preco;
-        percentualDesconto = ((precoBase - dados.precoDesconto) / precoBase) * 100;
+        percentualDesconto = precoBase > 0 ?
+          ((precoBase - dados.precoDesconto) / precoBase) * 100 : 0;
       }
 
+      // Preparar dados para atualização
+      const updateData: any = {
+        nome: dados.nome || produtoExistente.nome,
+        descricao: dados.descricao !== undefined ? dados.descricao : produtoExistente.descricao,
+        preco: dados.preco !== undefined ? parseFloat(dados.preco) : produtoExistente.preco,
+        precoDesconto: dados.precoDesconto !== undefined ?
+          (dados.precoDesconto ? parseFloat(dados.precoDesconto) : null) : produtoExistente.precoDesconto,
+        percentualDesconto: percentualDesconto !== undefined ?
+          (percentualDesconto ? parseFloat(percentualDesconto.toFixed(2)) : null) : produtoExistente.percentualDesconto,
+        estoque: dados.estoque !== undefined ? parseInt(dados.estoque) : produtoExistente.estoque,
+        sku: dados.sku || produtoExistente.sku,
+        ativo: dados.ativo !== undefined ? dados.ativo : produtoExistente.ativo,
+        emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : produtoExistente.emDestaque,
+        atualizadoEm: new Date()
+      };
+
+      // Adicionar data de término do desconto se fornecida
+      if (dados.descontoAte) {
+        updateData.descontoAte = new Date(dados.descontoAte);
+      }
+
+      console.log('📦 Dados para atualização:', updateData);
+
+      // Atualizar produto
       const produtoAtualizado = await prisma.produto.update({
         where: { id },
-        data: {
-          ...dados,
-          percentualDesconto: percentualDesconto ? parseFloat(percentualDesconto.toFixed(2)) : null,
-          descontoAte: dados.descontoAte ? new Date(dados.descontoAte) : null,
-          atualizadoEm: new Date()
+        data: updateData
+      });
+
+      // Atualizar relação com categoria se fornecida
+      if (dados.categoriaId !== undefined) {
+        if (dados.categoriaId) {
+          await prisma.produto.update({
+            where: { id },
+            data: {
+              categoria: {
+                set: [{ id: dados.categoriaId }]
+              }
+            }
+          });
+        } else {
+          // Remover todas as categorias
+          await prisma.produto.update({
+            where: { id },
+            data: {
+              categoria: {
+                set: []
+              }
+            }
+          });
+        }
+      }
+
+      // Gerenciar imagens
+      if (deletarImagem) {
+        // Deletar imagens do banco de dados
+        await prisma.imagemproduto.deleteMany({
+          where: { produtoId: id }
+        });
+
+        // Deletar arquivos físicos
+        await deleteProductFiles(id);
+
+        console.log('🗑️  Imagens deletadas');
+      }
+
+      if (imagemFile) {
+        try {
+          // Deletar imagem atual (se existir) antes de adicionar nova
+          await prisma.imagemproduto.deleteMany({
+            where: { produtoId: id }
+          });
+
+          // Deletar arquivos físicos antigos
+          await deleteProductFiles(id);
+
+          // Salvar nova imagem
+          const savedFile = await saveFile(imagemFile, id);
+
+          await prisma.imagemproduto.create({
+            data: {
+              id: randomUUID(),
+              produtoId: id,
+              url: savedFile.url,
+              textoAlt: dados.nome || produtoExistente.nome,
+              principal: true
+            }
+          });
+
+          console.log('✅ Nova imagem salva:', savedFile.url);
+        } catch (imageError) {
+          console.error('⚠️ Erro ao salvar imagem:', imageError);
+          // Não falhar a atualização se a imagem falhar
+        }
+      }
+
+      // Buscar produto atualizado com relações
+      const produtoFinal = await prisma.produto.findUnique({
+        where: { id },
+        include: {
+          categoria: true,
+          imagemproduto: true
         }
       });
+
+      console.log('✅ Produto atualizado com sucesso:', id);
 
       reply.send({
         success: true,
         message: 'Produto atualizado com sucesso',
-        data: produtoAtualizado
+        data: produtoFinal
       });
-    } catch (error) {
-      console.error('Erro ao atualizar produto:', error);
+
+    } catch (error: any) {
+      console.error('❌ Erro ao atualizar produto:', error);
+
+      // Erros específicos do Prisma
+      if (error.code === 'P2002') {
+        return reply.status(400).send({
+          success: false,
+          message: 'SKU já está em uso'
+        });
+      }
+
       reply.status(500).send({
         success: false,
-        message: 'Erro ao atualizar produto'
+        message: 'Erro interno ao atualizar produto',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
@@ -463,33 +641,98 @@ export class ProdutosController {
     reply: FastifyReply
   ) {
     try {
+      console.log('🗑️  Recebendo requisição para deletar produto...');
       const { id } = request.params;
+
+      console.log(`🔍 Buscando produto ID: ${id}`);
 
       // Verificar se produto existe
       const produto = await prisma.produto.findUnique({
-        where: { id }
+        where: { id },
+        include: {
+          imagemproduto: true
+        }
       });
 
       if (!produto) {
+        console.log(`❌ Produto ${id} não encontrado`);
         return reply.status(404).send({
           success: false,
           message: 'Produto não encontrado'
         });
       }
 
+      console.log(`✅ Produto encontrado: ${produto.nome}`);
+
+      // Verificar se produto tem vendas associadas (opcional, para segurança)
+      // Esta verificação depende da sua estrutura de dados
+
+      // Primeiro deletar imagens associadas
+      console.log('🔄 Deletando imagens do produto...');
+
+      // Deletar arquivos físicos das imagens
+      const arquivosDeletados = await deleteProductFiles(id);
+      console.log(`🗑️  ${arquivosDeletados} arquivo(s) físico(s) deletado(s)`);
+
+      // Deletar registros de imagens no banco de dados
+      await prisma.imagemproduto.deleteMany({
+        where: { produtoId: id }
+      });
+      console.log('✅ Registros de imagens deletados do banco');
+
+      // Remover relações com categorias (se houver)
+      console.log('🔄 Removendo relações com categorias...');
+      await prisma.produto.update({
+        where: { id },
+        data: {
+          categoria: {
+            set: []
+          }
+        }
+      });
+      console.log('✅ Relações com categorias removidas');
+
+      // Deletar o produto
+      console.log('🔄 Deletando produto do banco de dados...');
       await prisma.produto.delete({
         where: { id }
       });
 
+      console.log(`✅ Produto ${id} deletado com sucesso`);
+
       reply.send({
         success: true,
-        message: 'Produto deletado com sucesso'
+        message: 'Produto deletado com sucesso',
+        data: {
+          produtoId: id,
+          nome: produto.nome,
+          arquivosDeletados
+        }
       });
-    } catch (error) {
-      console.error('Erro ao deletar produto:', error);
+
+    } catch (error: any) {
+      console.error('❌ Erro ao deletar produto:', error);
+
+      // Erros específicos do Prisma
+      if (error.code === 'P2025') {
+        return reply.status(404).send({
+          success: false,
+          message: 'Produto não encontrado'
+        });
+      }
+
+      // Verificar se é erro de chave estrangeira (produto em uso)
+      if (error.code === 'P2003') {
+        return reply.status(400).send({
+          success: false,
+          message: 'Não é possível deletar o produto pois ele está sendo utilizado em outras partes do sistema'
+        });
+      }
+
       reply.status(500).send({
         success: false,
-        message: 'Erro ao deletar produto'
+        message: 'Erro interno ao deletar produto',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
@@ -515,6 +758,31 @@ export class ProdutosController {
         prisma.categoria.count()
       ]);
 
+      // Buscar produtos mais vendidos (se você tiver essa informação)
+      const produtosMaisVendidos = await prisma.produto.findMany({
+        where: { ativo: true },
+        orderBy: {
+          // Aqui você precisaria ordenar por um campo de vendas
+          // Por enquanto, usamos data de criação como placeholder
+          criadoEm: 'desc'
+        },
+        take: 5,
+        select: {
+          id: true,
+          nome: true,
+          preco: true,
+          estoque: true,
+          imagemproduto: {
+            where: { principal: true },
+            take: 1,
+            select: { url: true }
+          }
+        }
+      });
+
+      // Calcular total vendido (placeholder - você precisa implementar conforme sua lógica de vendas)
+      const totalVendidos = 0;
+
       reply.send({
         success: true,
         data: {
@@ -524,9 +792,26 @@ export class ProdutosController {
           totalEmPromocao,
           baixoEstoque,
           semEstoque,
-          totalVendidos: 0, // Para simplificar por enquanto
-          produtosMaisVendidos: [], // Para simplificar por enquanto
-          totalCategorias
+          totalVendidos,
+          produtosMaisVendidos: produtosMaisVendidos.map(produto => ({
+            id: produto.id,
+            nome: produto.nome,
+            preco: produto.preco,
+            estoque: produto.estoque,
+            imagem: produto.imagemproduto[0]?.url || null
+          })),
+          totalCategorias,
+          resumo: {
+            produtosPorStatus: {
+              ativos: totalAtivos,
+              inativos: totalInativos,
+              emPromocao: totalEmPromocao,
+              baixoEstoque: baixoEstoque,
+              semEstoque: semEstoque
+            },
+            porcentagemAtivos: totalProdutos > 0 ? Math.round((totalAtivos / totalProdutos) * 100) : 0,
+            porcentagemPromocao: totalProdutos > 0 ? Math.round((totalEmPromocao / totalProdutos) * 100) : 0
+          }
         }
       });
     } catch (error) {
@@ -534,6 +819,88 @@ export class ProdutosController {
       reply.status(500).send({
         success: false,
         message: 'Erro ao buscar estatísticas'
+      });
+    }
+  }
+
+  // Método para deletar múltiplos produtos (opcional)
+  async deletarMultiplosProdutos(
+    request: FastifyRequest<{ Body: { ids: string[] } }>,
+    reply: FastifyReply
+  ) {
+    try {
+      console.log('🗑️  Recebendo requisição para deletar múltiplos produtos...');
+      const { ids } = request.body;
+
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Nenhum ID fornecido'
+        });
+      }
+
+      console.log(`🔍 Tentando deletar ${ids.length} produto(s)...`);
+
+      // Verificar quais produtos existem
+      const produtos = await prisma.produto.findMany({
+        where: { id: { in: ids } },
+        include: { imagemproduto: true }
+      });
+
+      const produtosEncontrados = produtos.map(p => p.id);
+      const produtosNaoEncontrados = ids.filter(id => !produtosEncontrados.includes(id));
+
+      // Deletar arquivos físicos e registros de imagens
+      let totalArquivosDeletados = 0;
+      for (const produto of produtos) {
+        const arquivosDeletados = await deleteProductFiles(produto.id);
+        totalArquivosDeletados += arquivosDeletados;
+
+        await prisma.imagemproduto.deleteMany({
+          where: { produtoId: produto.id }
+        });
+      }
+
+      // Remover relações com categorias
+      await prisma.produto.updateMany({
+        where: { id: { in: produtosEncontrados } },
+        data: {
+          estoque: {
+            set: 0
+          }
+        }
+      });
+
+      // Deletar os produtos
+      const result = await prisma.produto.deleteMany({
+        where: { id: { in: produtosEncontrados } }
+      });
+
+      console.log(`✅ ${result.count} produto(s) deletado(s) com sucesso`);
+
+      const response: any = {
+        success: true,
+        message: `${result.count} produto(s) deletado(s) com sucesso`,
+        data: {
+          deletados: result.count,
+          arquivosDeletados: totalArquivosDeletados,
+          produtosNaoEncontrados
+        }
+      };
+
+      if (produtosNaoEncontrados.length > 0) {
+        response.warning = `Alguns produtos não foram encontrados: ${produtosNaoEncontrados.join(', ')}`;
+      }
+
+      reply.send(response);
+
+    } catch (error: any) {
+      console.error('❌ Erro ao deletar múltiplos produtos:', error);
+
+      reply.status(500).send({
+        success: false,
+        message: 'Erro interno ao deletar produtos',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
