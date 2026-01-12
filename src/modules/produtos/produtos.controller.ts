@@ -5,6 +5,69 @@ import { pipeline } from 'stream/promises';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import {v2 as  cloudinary} from "cloudinary";
+
+
+cloudinary.config({
+  cloud_name:process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:process.env.CLOUDINARY_API_KEY,
+  api_secret:process.env.CLOUDINARY_API_SECRET,
+  secure:true,
+})
+
+// Função para fazer upload e retornar APENAS public_id
+async function uploadToCloudinary(file: any, produtoId: string): Promise<{
+  public_id: string;
+  secure_url: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'sufficius/produtos',
+        public_id: `${produtoId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        resource_type: 'auto',
+        transformation: [
+          { width: 1200, height: 1200, crop: 'limit' },
+          { quality: 'auto:good' }
+        ]
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+        } else if (result) {
+          resolve({
+            public_id: result.public_id,
+            secure_url: result.secure_url
+          });
+        } else {
+          reject(new Error('Upload sem resultado'));
+        }
+      }
+    );
+
+    file.file.pipe(uploadStream);
+  });
+}
+
+
+function buildCloudinaryUrl(publicId: string, options: any = {}): string {
+  const defaultOptions = {
+    width: 600,
+    height: 600,
+    crop: 'fill',
+    quality: 'auto:good'
+  };
+
+   const transformOptions = { ...defaultOptions, ...options };
+  const transformations = Object.entries(transformOptions)
+    .map(([key, value]) => `${key}_${value}`)
+    .join(',');
+
+  return `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${transformations}/${publicId}`;
+}
+
+
+
 
 // Configurar upload de arquivos
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -139,6 +202,34 @@ export class ProdutosController {
         prisma.produto.count({ where })
       ]);
 
+         // Formatar resposta com URLs construídas dinamicamente
+      const produtosFormatados = produtos.map(produto => {
+        const imagemPrincipal = produto.imagemproduto[0];
+        
+        return {
+          id: produto.id,
+          nome: produto.nome,
+          descricao: produto.descricao || '',
+          preco: produto.preco,
+          precoDesconto: produto.precoDesconto,
+          percentualDesconto: produto.percentualDesconto,
+          descontoAte: produto.descontoAte?.toISOString() || null,
+          estoque: produto.estoque,
+          sku: produto.sku,
+          ativo: produto.ativo,
+          emDestaque: produto.emDestaque,
+          criadoEm: produto.criadoEm.toISOString(),
+          categoria: produto.categoria[0]?.nome || 'Sem categoria',
+          categoriaId: produto.categoria[0]?.id || null,
+          // URL construída dinamicamente
+          imagem: imagemPrincipal 
+            ? buildCloudinaryUrl(imagemPrincipal.id, { width: 400, height: 400 })
+            : null,
+          imagemAlt: imagemPrincipal?.textoAlt || produto.nome,
+          status: this.determinarStatus(produto.ativo, produto.estoque)
+        };
+      });
+
       // Buscar estatísticas básicas
       const totalProdutos = await prisma.produto.count();
       const totalAtivos = await prisma.produto.count({ where: { ativo: true } });
@@ -146,26 +237,6 @@ export class ProdutosController {
       const baixoEstoque = await prisma.produto.count({ where: { estoque: { lte: 10, gt: 0 } } });
       const totalCategorias = await prisma.categoria.count();
 
-      // Formatar resposta
-      const produtosFormatados = produtos.map(produto => ({
-        id: produto.id,
-        nome: produto.nome,
-        descricao: produto.descricao || '',
-        preco: produto.preco,
-        precoDesconto: produto.precoDesconto,
-        percentualDesconto: produto.percentualDesconto,
-        descontoAte: produto.descontoAte ? produto.descontoAte.toISOString() : null,
-        estoque: produto.estoque,
-        sku: produto.sku,
-        ativo: produto.ativo,
-        emDestaque: produto.emDestaque,
-        criadoEm: produto.criadoEm.toISOString(),
-        categoria: produto.categoria[0]?.nome || 'Sem categoria',
-        categoriaId: produto.categoria[0]?.id || null,
-        imagem: produto.imagemproduto[0]?.url || null,
-        imagemAlt: produto.imagemproduto[0]?.textoAlt || produto.nome,
-        status: this.determinarStatus(produto.ativo, produto.estoque)
-      }));
 
       reply.send({
         success: true,
@@ -296,70 +367,54 @@ export class ProdutosController {
         });
       }
 
-      // Verificar se categoria existe (se fornecida)
-      if (dados.categoriaId) {
-        const categoria = await prisma.categoria.findUnique({
-          where: { id: dados.categoriaId }
-        });
+      const produtoId = `prod_${Date.now()}_${randomUUID().substring(0, 8)}`;
 
-        if (!categoria) {
-          return reply.status(400).send({
-            success: false,
-            message: 'Categoria não encontrada'
-          });
-        }
-      }
-
-      // Calcular percentual de desconto se não fornecido
+         // Calcular percentual de desconto se não fornecido
       let percentualDesconto = dados.percentualDesconto;
       if (dados.precoDesconto && !percentualDesconto) {
         percentualDesconto = ((parseFloat(dados.preco) - parseFloat(dados.precoDesconto)) / parseFloat(dados.preco)) * 100;
       }
 
       // Preparar dados para criação
-      const produtoData: any = {
-        id: `prod_${Date.now()}_${randomUUID().substring(0, 8)}`,
-        nome: dados.nome,
-        descricao: dados.descricao || null,
-        preco: parseFloat(dados.preco),
-        precoDesconto: dados.precoDesconto ? parseFloat(dados.precoDesconto) : null,
-        percentualDesconto: percentualDesconto ? parseFloat(percentualDesconto.toFixed(2)) : null,
-        estoque: parseInt(dados.estoque),
-        sku: dados.sku,
-        ativo: dados.ativo !== undefined ? dados.ativo : true,
-        emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : false
-      };
+      const produto = await  prisma.produto.create({
+        data:{
+          id: produtoId,
+          nome: dados.nome,
+          descricao: dados.descricao || null,
+          preco: parseFloat(dados.preco),
+          precoDesconto: dados.precoDesconto ? parseFloat(dados.precoDesconto) : null,
+          percentualDesconto: percentualDesconto ? parseFloat(percentualDesconto.toFixed(2)) : null,
+          estoque: parseInt(dados.estoque),
+          sku: dados.sku,
+          ativo: dados.ativo !== undefined ? dados.ativo : true,
+          emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : false,
 
-      // Adicionar relação com categoria se fornecida
-      if (dados.categoriaId) {
-        produtoData.categoria = {
-          connect: [{ id: dados.categoriaId }]
-        };
-      }
-
-      console.log('📊 Dados processados:', produtoData);
-
-      // Criar produto
-      const produto = await prisma.produto.create({
-        data: produtoData
+          // Conectar categoria se fornecida
+          ...(dados.categoriaId && {
+            categoria: {
+              connect: [{ id: dados.categoriaId }]
+            }
+          })
+        }
       });
 
       // Lidar com upload de imagem
       if (imagemFile) {
         try {
-          const savedFile = await saveFile(imagemFile, produto.id);
+          const cloudinaryResult = await uploadToCloudinary(imagemFile, produto.id);
 
           await prisma.imagemproduto.create({
             data: {
-              id: randomUUID(),
+              id: produto.id,
               produtoId: produto.id,
-              url: savedFile.url,
+              publicId: cloudinaryResult.public_id,
               textoAlt: dados.nome,
+              url: cloudinaryResult.secure_url,
               principal: true
             }
           });
+          console.log('✅ Imagem salva, public_id:', cloudinaryResult.public_id);
 
-          console.log('✅ Imagem salva:', savedFile.url);
         } catch (imageError) {
           console.error('⚠️ Erro ao salvar imagem:', imageError);
           // Não falhar o produto se a imagem falhar
@@ -375,12 +430,30 @@ export class ProdutosController {
         }
       });
 
+      // Format response
+      const response = {
+        id: produtoCriado?.id,
+        nome: produtoCriado?.nome,
+        descricao: produtoCriado?.descricao,
+        preco: produtoCriado?.preco,
+        precoDesconto: produtoCriado?.precoDesconto,
+        estoque: produtoCriado?.estoque,
+        sku: produtoCriado?.sku,
+        ativo: produtoCriado?.ativo,
+        emDestaque: produtoCriado?.emDestaque,
+        categoria: produtoCriado?.categoria[0]?.nome || null,
+        // Construir URL para resposta
+        imagem: produtoCriado?.imagemproduto[0] 
+          ? buildCloudinaryUrl(produtoCriado?.imagemproduto[0].publicId)
+          : null
+      };
+
       console.log('✅ Produto criado com sucesso:', produto.id);
 
       reply.status(201).send({
         success: true,
         message: 'Produto criado com sucesso',
-        data: produtoCriado
+        data: response
       });
 
     } catch (error: any) {
@@ -449,6 +522,8 @@ export class ProdutosController {
       let imagemFile: any = null;
       let deletarImagem = false;
 
+      
+
       if (isMultipart) {
         console.log('🔄 Processando dados multipart...');
         const parts = request.parts();
@@ -503,6 +578,7 @@ export class ProdutosController {
           });
         }
       }
+      
 
       // Verificar se categoria existe (se fornecida)
       if (dados.categoriaId) {
@@ -631,6 +707,7 @@ export class ProdutosController {
             data: {
               id: randomUUID(),
               produtoId: id,
+              publicId:id,
               url: imageUrlWithTimestamp,
               textoAlt: dados.nome || produtoExistente.nome,
               principal: true
