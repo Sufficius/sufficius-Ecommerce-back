@@ -107,7 +107,7 @@ model historicostatuspedido {
 model imagemproduto {
   id        String   @id
   produtoId String
-  publicId   String?  
+  publicId   String @default("") 
   url       String
   textoAlt  String?
   principal Boolean  @default(false)
