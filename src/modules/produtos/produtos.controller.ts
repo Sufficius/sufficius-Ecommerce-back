@@ -519,11 +519,13 @@ export class ProdutosController {
       }
 
       // Calcular percentual de desconto se alterado
-      let percentualDesconto = dados.percentualDesconto;
+      let percentualDesconto = dados.percentualDesconto  ? parseFloat(dados.percentualDesconto) : dados.percentualDesconto;
+     
       if (dados.precoDesconto !== undefined && !percentualDesconto && dados.precoDesconto !== null) {
-        const precoBase = dados.preco || produtoExistente.preco;
+        const precoBase = dados.preco ? parseFloat(dados.preco) : produtoExistente.preco;
+        const precoDescontoNum = parseFloat(dados.precoDesconto);
         percentualDesconto = precoBase > 0 ?
-          ((precoBase - dados.precoDesconto) / precoBase) * 100 : 0;
+          ((precoBase - precoDescontoNum) / precoBase) * 100 : 0;
       }
 
       // Preparar dados para atualização
@@ -531,16 +533,34 @@ export class ProdutosController {
         nome: dados.nome || produtoExistente.nome,
         descricao: dados.descricao !== undefined ? dados.descricao : produtoExistente.descricao,
         preco: dados.preco !== undefined ? parseFloat(dados.preco) : produtoExistente.preco,
-        precoDesconto: dados.precoDesconto !== undefined ?
-          (dados.precoDesconto ? parseFloat(dados.precoDesconto) : null) : produtoExistente.precoDesconto,
-        percentualDesconto: percentualDesconto !== undefined ?
-          (percentualDesconto ? parseFloat(percentualDesconto.toFixed(2)) : null) : produtoExistente.percentualDesconto,
         estoque: dados.estoque !== undefined ? parseInt(dados.estoque) : produtoExistente.estoque,
         sku: dados.sku || produtoExistente.sku,
         ativo: dados.ativo !== undefined ? dados.ativo : produtoExistente.ativo,
         emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : produtoExistente.emDestaque,
         atualizadoEm: new Date()
       };
+
+       // Tratar precoDesconto
+    if (dados.precoDesconto !== undefined) {
+      updateData.precoDesconto = dados.precoDesconto ? 
+        parseFloat(dados.precoDesconto) : 
+        null;
+    } else {
+      updateData.precoDesconto = produtoExistente.precoDesconto;
+    }
+
+     // CORREÇÃO: Tratar percentualDesconto corretamente
+    if (percentualDesconto !== undefined) {
+      if (percentualDesconto !== null && !isNaN(percentualDesconto)) {
+        // Garantir que seja número antes de usar toFixed
+        updateData.percentualDesconto = parseFloat(percentualDesconto.toFixed(2));
+      } else {
+        updateData.percentualDesconto = null;
+      }
+    } else {
+      updateData.percentualDesconto = produtoExistente.percentualDesconto;
+    }
+
 
       // Adicionar data de término do desconto se fornecida
       if (dados.descontoAte) {
@@ -641,6 +661,7 @@ export class ProdutosController {
 
     } catch (error: any) {
       console.error('❌ Erro ao atualizar produto:', error);
+      console.error('🔍 Stack trace:', error.stack);
 
       // Erros específicos do Prisma
       if (error.code === 'P2002') {
