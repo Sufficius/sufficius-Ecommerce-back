@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 model avaliacao {
@@ -107,7 +107,7 @@ model historicostatuspedido {
 model imagemproduto {
   id        String   @id
   produtoId String
-  publicId   String  
+  publicId   String?  
   url       String
   textoAlt  String?
   principal Boolean  @default(false)
