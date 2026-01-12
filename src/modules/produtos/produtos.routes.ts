@@ -351,28 +351,13 @@ export default async function produtosRoutes(app: FastifyInstance) {
         tags: ['Produtos'],
         summary: 'Atualizar produto (apenas admin)',
         security: [{ bearerAuth: [] }],
+         consumes: ['multipart/form-data'], 
         params: {
           type: 'object',
           properties: {
             id: { type: 'string' }
           },
           required: ['id']
-        },
-        body: {
-          type: 'object',
-          properties: {
-            nome: { type: 'string' },
-            descricao: { type: 'string' },
-            preco: { type: 'number', minimum: 0 },
-            precoDesconto: { type: 'number', minimum: 0 },
-            percentualDesconto: { type: 'number', minimum: 0, maximum: 100 },
-            descontoAte: { type: 'string', format: 'date-time' },
-            estoque: { type: 'integer', minimum: 0 },
-            sku: { type: 'string' },
-            categoriaId: { type: 'string' },
-            ativo: { type: 'boolean' },
-            emDestaque: { type: 'boolean' }
-          }
         },
         response: {
           200: {
