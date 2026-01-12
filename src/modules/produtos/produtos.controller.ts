@@ -435,14 +435,14 @@ export class ProdutosController {
       // Verificar se é multipart/form-data
       const contentType = request.headers['content-type'] || '';
       const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
-      
+
       console.log('🔍 Content-Type:', contentType);
       console.log('🔍 É multipart?', isMultipart);
 
       if (!isMultipart) {
-      console.log('⚠️  Content-Type não é multipart/form-data');
-      console.log('⚠️  Headers recebidos:', request.headers);
-    }
+        console.log('⚠️  Content-Type não é multipart/form-data');
+        console.log('⚠️  Headers recebidos:', request.headers);
+      }
 
 
       let dados: any = {};
@@ -458,10 +458,10 @@ export class ProdutosController {
           if (part.type === 'file') {
             imagemFile = part;
             console.log('📁 Arquivo recebido:', {
-            filename: part.filename,
-            mimetype: part.mimetype,
-            fieldname: part.fieldname
-          });
+              filename: part.filename,
+              mimetype: part.mimetype,
+              fieldname: part.fieldname
+            });
           } else {
             console.log(`📝 Campo ${part.fieldname}: ${part.value}`);
 
@@ -481,9 +481,9 @@ export class ProdutosController {
         }
       } else {
         console.log('❌ ERRO: Dados não são multipart/form-data');
-      console.log('📄 Tentando ler como JSON...');
-      dados = request.body as any;
-      console.log('📄 Dados JSON:', dados);
+        console.log('📄 Tentando ler como JSON...');
+        dados = request.body as any;
+        console.log('📄 Dados JSON:', dados);
       }
 
       console.log('📊 Dados processados:', dados);
@@ -519,8 +519,8 @@ export class ProdutosController {
       }
 
       // Calcular percentual de desconto se alterado
-      let percentualDesconto = dados.percentualDesconto  ? parseFloat(dados.percentualDesconto) : dados.percentualDesconto;
-     
+      let percentualDesconto = dados.percentualDesconto ? parseFloat(dados.percentualDesconto) : dados.percentualDesconto;
+
       if (dados.precoDesconto !== undefined && !percentualDesconto && dados.precoDesconto !== null) {
         const precoBase = dados.preco ? parseFloat(dados.preco) : produtoExistente.preco;
         const precoDescontoNum = parseFloat(dados.precoDesconto);
@@ -540,26 +540,26 @@ export class ProdutosController {
         atualizadoEm: new Date()
       };
 
-       // Tratar precoDesconto
-    if (dados.precoDesconto !== undefined) {
-      updateData.precoDesconto = dados.precoDesconto ? 
-        parseFloat(dados.precoDesconto) : 
-        null;
-    } else {
-      updateData.precoDesconto = produtoExistente.precoDesconto;
-    }
-
-     // CORREÇÃO: Tratar percentualDesconto corretamente
-    if (percentualDesconto !== undefined) {
-      if (percentualDesconto !== null && !isNaN(percentualDesconto)) {
-        // Garantir que seja número antes de usar toFixed
-        updateData.percentualDesconto = parseFloat(percentualDesconto.toFixed(2));
+      // Tratar precoDesconto
+      if (dados.precoDesconto !== undefined) {
+        updateData.precoDesconto = dados.precoDesconto ?
+          parseFloat(dados.precoDesconto) :
+          null;
       } else {
-        updateData.percentualDesconto = null;
+        updateData.precoDesconto = produtoExistente.precoDesconto;
       }
-    } else {
-      updateData.percentualDesconto = produtoExistente.percentualDesconto;
-    }
+
+      // CORREÇÃO: Tratar percentualDesconto corretamente
+      if (percentualDesconto !== undefined) {
+        if (percentualDesconto !== null && !isNaN(percentualDesconto)) {
+          // Garantir que seja número antes de usar toFixed
+          updateData.percentualDesconto = parseFloat(percentualDesconto.toFixed(2));
+        } else {
+          updateData.percentualDesconto = null;
+        }
+      } else {
+        updateData.percentualDesconto = produtoExistente.percentualDesconto;
+      }
 
 
       // Adicionar data de término do desconto se fornecida
@@ -624,12 +624,14 @@ export class ProdutosController {
 
           // Salvar nova imagem
           const savedFile = await saveFile(imagemFile, id);
+          const timestamp = Date.now();
+          const imageUrlWithTimestamp = `${savedFile.url}?v=${timestamp}`;
 
           await prisma.imagemproduto.create({
             data: {
               id: randomUUID(),
               produtoId: id,
-              url: savedFile.url,
+              url: imageUrlWithTimestamp,
               textoAlt: dados.nome || produtoExistente.nome,
               principal: true
             }
