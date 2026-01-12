@@ -408,7 +408,8 @@ export class ProdutosController {
   ) {
     try {
       console.log('🔄 Recebendo requisição para atualizar produto...');
-      console.log('📋 Content-Type:', request.headers['content-type']);
+      console.log('📋 Headers:', request.headers);
+      console.log('🔗 Params:', request.params);
 
       const { id } = request.params;
 
@@ -422,15 +423,27 @@ export class ProdutosController {
       });
 
       if (!produtoExistente) {
+        console.log(`❌ Produto ${id} não encontrado`);
         return reply.status(404).send({
           success: false,
           message: 'Produto não encontrado'
         });
       }
 
+      console.log(`✅ Produto encontrado: ${produtoExistente.nome}`);
+
       // Verificar se é multipart/form-data
+      const contentType = request.headers['content-type'] || '';
       const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
+      
+      console.log('🔍 Content-Type:', contentType);
       console.log('🔍 É multipart?', isMultipart);
+
+      if (!isMultipart) {
+      console.log('⚠️  Content-Type não é multipart/form-data');
+      console.log('⚠️  Headers recebidos:', request.headers);
+    }
+
 
       let dados: any = {};
       let imagemFile: any = null;
@@ -440,9 +453,15 @@ export class ProdutosController {
         console.log('🔄 Processando dados multipart...');
         const parts = request.parts();
         for await (const part of parts) {
+          console.log(`📝 Parte recebida - Campo: ${part.fieldname}, Tipo: ${part.type}`);
+
           if (part.type === 'file') {
             imagemFile = part;
-            console.log('📁 Arquivo recebido:', part.filename);
+            console.log('📁 Arquivo recebido:', {
+            filename: part.filename,
+            mimetype: part.mimetype,
+            fieldname: part.fieldname
+          });
           } else {
             console.log(`📝 Campo ${part.fieldname}: ${part.value}`);
 
@@ -454,14 +473,17 @@ export class ProdutosController {
               dados[part.fieldname] = part.value ? part.value : null;
             } else if (part.fieldname === 'deletarImagem') {
               deletarImagem = part.value === 'true';
+              console.log('🗑️  Deletar imagem:', deletarImagem);
             } else {
               dados[part.fieldname] = part.value;
             }
           }
         }
       } else {
-        console.log('📄 Processando dados JSON');
-        dados = request.body as any;
+        console.log('❌ ERRO: Dados não são multipart/form-data');
+      console.log('📄 Tentando ler como JSON...');
+      dados = request.body as any;
+      console.log('📄 Dados JSON:', dados);
       }
 
       console.log('📊 Dados processados:', dados);
