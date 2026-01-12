@@ -157,7 +157,18 @@ app.register(multipart, {
 app.register(fastifyStatic, {
     root: path.join(process.cwd(), 'uploads'),
     prefix: '/uploads/',
-    decorateReply: false
+    decorateReply: false,
+
+    serve:true,
+    preCompressed:false,
+
+    setHeaders: (res, path) => {
+        res.setHeader('access-control-allow-origin', '*');
+        res.setHeader('cache-control', 'public, max=86400');
+        res.setHeader('cross-origin-resource-policy', 'cross-origin');
+    },
+    list: process.env.NODE_ENV === 'development',
+    redirect: false
 });
 
 // Swagger/OpenAPI
@@ -223,6 +234,10 @@ app.get('/', async () => ({
     health: '/health',
     cors: 'CORS manual configurado'
 }));
+
+app.get('/uploads/test.txt', async (request, reply) => {
+  return reply.send('Teste de uploads funcionando!');
+});
 
 // Error handler global
 app.setErrorHandler(function (error, request, reply) {

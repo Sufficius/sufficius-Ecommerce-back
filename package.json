@@ -4,19 +4,19 @@
   "description": "- Para se tornar um comprador, o usuário deve estar cadastrado.\r - Para estar cadastrado deve informar: nome, senha, número de telefone, email.\r - O cadastro é finalizado quando o email e o número de telefone forem verificados.\r - Dados sensíveis do usuário devem ser armazenados de forma segura.",
   "main": "index.js",
   "scripts": {
-    "prisma:generate":"prisma generate",
-    "prisma:migrate":"prisma migrate",
-    "clean":"rm -rf dist node_modules/.prisma node_modules/.cache",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate",
+    "clean": "rm -rf dist node_modules/.prisma node_modules/.cache",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "npm run prisma:generate && tsc && npm run db:setup",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
-     "render-build": "npm ci --only=production && npm run prisma:generate && npm run prisma:migrate && npm run build",
+    "render-build": "npm ci --only=production && npm run prisma:generate && npm run prisma:migrate && npm run build",
     "render-start": "node dist/server.js",
     "db:setup": "node scripts/setup-database.js"
   },
-   "prisma": {
+  "prisma": {
     "schema": "prisma/schema.prisma"
   },
   "repository": {
@@ -45,6 +45,7 @@
     "@types/nodemailer": "^7.0.4",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "fastify": "^4.29.1",

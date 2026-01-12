@@ -2,7 +2,8 @@
 import { FastifyInstance } from 'fastify';
 import { ProdutosController } from './produtos.controller';
 import { authenticate, isAdmin } from '../../middleware/auth.middleware';
-
+import path from 'path';
+import fs from 'fs';
 const produtosController = new ProdutosController();
 
 // Interfaces para as rotas
@@ -80,7 +81,6 @@ interface BuscarProdutoPorIdRoute {
 
 interface AtualizarProdutoRoute {
   Params: { id: string };
-  Body: {
     nome?: string;
     descricao?: string;
     preco?: number;
@@ -92,7 +92,6 @@ interface AtualizarProdutoRoute {
     categoriaId?: string | null;
     ativo?: boolean;
     emDestaque?: boolean;
-  };
   Reply: {
     200: {
       success: boolean;
@@ -238,6 +237,24 @@ export default async function produtosRoutes(app: FastifyInstance) {
     },
     produtosController.listarProdutos.bind(produtosController)
   );
+
+  // Adicione em produtos.routes.ts (antes do export default)
+app.get('/test-uploads', async (request, reply) => {
+  const uploadDir = process.env.RENDER 
+    ? '/opt/render/project/src/uploads'
+    : path.join(process.cwd(), 'uploads');
+  
+  const exists = fs.existsSync(uploadDir);
+  const files = exists ? fs.readdirSync(uploadDir) : [];
+  
+  return {
+    success: true,
+    uploadDir,
+    exists,
+    fileCount: files.length,
+    files: files.slice(0, 10)
+  };
+});
 
   // Buscar produto por ID
   app.get<BuscarProdutoPorIdRoute>(
@@ -388,6 +405,8 @@ export default async function produtosRoutes(app: FastifyInstance) {
     produtosController.atualizarProduto.bind(produtosController)
   );
 
+
+  
   // Deletar produto
   app.delete<DeletarProdutoRoute>(
     '/:id',
