@@ -92,6 +92,29 @@ async function saveFile(file: any, produtoId: string) {
 }
 
 // Função auxiliar para deletar arquivos físicos
+// async function deleteProductFiles(produtoId: string) {
+//   try {
+//     // Buscar todas as imagens do produto
+//     const imagens = await prisma.imagemproduto.findMany({
+//       where: { produtoId }
+//     });
+
+//     // Deletar arquivos físicos
+//     for (const imagem of imagens) {
+//       const filepath = path.join(uploadDir, path.basename(imagem.url));
+//       if (fs.existsSync(filepath)) {
+//         fs.unlinkSync(filepath);
+//         console.log(`🗑️  Arquivo deletado: ${filepath}`);
+//       }
+//     }
+
+//     return imagens.length;
+//   } catch (error) {
+//     console.error('⚠️  Erro ao deletar arquivos físicos:', error);
+//     return 0;
+//   }
+// }
+
 async function deleteProductFiles(produtoId: string) {
   try {
     // Buscar todas as imagens do produto
@@ -99,22 +122,22 @@ async function deleteProductFiles(produtoId: string) {
       where: { produtoId }
     });
 
-    // Deletar arquivos físicos
+    // Deletar do Cloudinary
     for (const imagem of imagens) {
-      const filepath = path.join(uploadDir, path.basename(imagem.url));
-      if (fs.existsSync(filepath)) {
-        fs.unlinkSync(filepath);
-        console.log(`🗑️  Arquivo deletado: ${filepath}`);
+      try {
+        await cloudinary.uploader.destroy(imagem.publicId);
+        console.log(`🗑️  Imagem deletada do Cloudinary: ${imagem.publicId}`);
+      } catch (cloudinaryError) {
+        console.error('⚠️ Erro ao deletar do Cloudinary:', cloudinaryError);
       }
     }
 
     return imagens.length;
   } catch (error) {
-    console.error('⚠️  Erro ao deletar arquivos físicos:', error);
+    console.error('⚠️ Erro ao deletar arquivos:', error);
     return 0;
   }
 }
-
 export class ProdutosController {
   async listarProdutos(
     request: FastifyRequest<{
@@ -313,14 +336,10 @@ export class ProdutosController {
 ) {
   try {
     console.log('📦 === INÍCIO: Recebendo requisição para criar produto ===');
-    console.log('📋 Content-Type:', request.headers['content-type']);
-    console.log('📏 Content-Length:', request.headers['content-length']);
 
     const contentType = request.headers['content-type'] || '';
     const isMultipart = contentType.includes('multipart/form-data');
     
-    console.log('🔍 É multipart?', isMultipart);
-
     interface DadosProduto {
       nome?: string;
       sku?: string;
@@ -339,111 +358,67 @@ export class ProdutosController {
     let imagemFile: any = null;
 
     if (isMultipart && request.isMultipart()) {
-  console.log('🔄 Processando multipart...');
-  
-  try {
-    const parts = request.parts();
-    
-    for await (const part of parts) {
-      console.log(`📝 Campo: ${part.fieldname}, Tipo: ${part.type}`);
+      console.log('🔄 Processando multipart...');
       
-      if (part.type === 'file') {
-        imagemFile = part;
-        console.log(`📁 Arquivo: ${part.filename || 'sem nome'}`);
-      } else {
-        // ✅ CORREÇÃO: Acessar 'value' apenas se for MultipartField
-        // TypeScript precisa de type guard
-        if ('value' in part) {
-          const valor = String(part.value); // Agora seguro
-          
-          // ✅ CONVERSÕES CORRETAS
-          switch (part.fieldname) {
-            case 'ativo':
-            case 'emDestaque':
-              dados[part.fieldname] = valor === 'true' || valor === '1' || valor === 'on';
-              console.log(`✅ ${part.fieldname} convertido para:`, dados[part.fieldname]);
-              break;
+      try {
+        const parts = request.parts();
+        
+        for await (const part of parts) {
+          if (part.type === 'file') {
+            imagemFile = part;
+            console.log(`📁 Arquivo: ${part.filename || 'sem nome'}`);
+          } else {
+            if ('value' in part) {
+              const valor = String(part.value);
               
-            case 'preco':
-            case 'precoDesconto':
-            case 'percentualDesconto':
-            case 'estoque':
-              dados[part.fieldname] = valor.trim();
-              console.log(`📊 ${part.fieldname}:`, dados[part.fieldname]);
-              break;
-              
-            default:
-              dados[part.fieldname as keyof DadosProduto] = valor;
-              console.log(`📝 ${part.fieldname}:`, valor);
-              break;
+              switch (part.fieldname) {
+                case 'ativo':
+                case 'emDestaque':
+                  dados[part.fieldname] = valor === 'true' || valor === '1' || valor === 'on';
+                  break;
+                  
+                case 'preco':
+                case 'precoDesconto':
+                case 'percentualDesconto':
+                case 'estoque':
+                  dados[part.fieldname] = valor.trim();
+                  break;
+                  
+                default:
+                  dados[part.fieldname as keyof DadosProduto] = valor;
+                  break;
+              }
+            }
           }
-        } else {
-          console.log(`⚠️  Campo ${part} não tem valor (tipo: ${part})`);
+        }
+        
+      } catch (multipartError: any) {
+        console.error('❌ ERRO no multipart:', multipartError.message);
+        
+        // Fallback para JSON
+        try {
+          const body = request.body as DadosProduto;
+          if (body) {
+            dados = body;
+          }
+        } catch (jsonError) {
+          console.error('❌ Fallback JSON falhou:', jsonError);
         }
       }
     }
-    
-    console.log('✅ Multipart processado com sucesso!');
-    
-  } catch (multipartError: any) {
-    console.error('❌ ERRO no multipart:', multipartError.message);
-    
-    // Fallback para JSON
-    console.log('🔄 Tentando fallback para JSON...');
-    try {
-      const body = request.body as DadosProduto;
-      if (body) {
-        dados = body;
-        console.log('📄 Dados do fallback:', dados);
-      }
-    } catch (jsonError) {
-      console.error('❌ Fallback JSON falhou:', jsonError);
-    }
-  }
-}
 
-    // ✅ DEBUG DETALHADO
-    console.log('📊 === DADOS FINAIS ===');
-    console.log('Tipo:', typeof dados);
-    console.log('Conteúdo:', JSON.stringify(dados, null, 2));
-    
-    if (dados && typeof dados === 'object') {
-      Object.entries(dados).forEach(([key, value]) => {
-        console.log(`  ${key}: ${value} (${typeof value})`);
-      });
-    }
-
-    // ✅ VALIDAÇÃO MELHORADA
-    console.log('🔍 === VALIDAÇÃO ===');
-    
-    // Converter valores para o formato correto para validação
+    // Validação
     const nome = dados.nome ? String(dados.nome).trim() : '';
     const sku = dados.sku ? String(dados.sku).trim() : '';
     const preco = dados.preco ? String(dados.preco) : '';
     const estoque = dados.estoque !== undefined ? String(dados.estoque) : '';
     
-    console.log('Nome:', nome ? `"${nome}"` : 'FALTANDO');
-    console.log('SKU:', sku ? `"${sku}"` : 'FALTANDO');
-    console.log('Preço:', preco ? `"${preco}"` : 'FALTANDO');
-    console.log('Estoque:', estoque !== '' ? `"${estoque}"` : 'FALTANDO');
-
     if (!nome || !sku || !preco || estoque === '') {
-      console.log('❌ CAMPOS FALTANDO!');
-      console.log('Dados completos recebidos:', dados);
-      
       return reply.status(400).send({
         success: false,
-        message: 'Campos obrigatórios faltando: nome, sku, preco, estoque',
-        debug: {
-          nomePresente: !!nome,
-          skuPresente: !!sku,
-          precoPresente: !!preco,
-          estoquePresente: estoque !== ''
-        }
+        message: 'Campos obrigatórios faltando: nome, sku, preco, estoque'
       });
     }
-
-    console.log('✅ Todos os campos obrigatórios OK!');
 
     // Verificar se SKU já existe
     const skuExistente = await prisma.produto.findUnique({
@@ -469,7 +444,7 @@ export class ProdutosController {
       percentualDesconto = ((precoNum - precoDescontoNum) / precoNum) * 100;
     }
 
-    // Preparar dados para criação
+    // Criar produto
     const produto = await prisma.produto.create({
       data: {
         id: produtoId,
@@ -494,14 +469,18 @@ export class ProdutosController {
       }
     });
 
-    // Lidar com upload de imagem
+    // Lidar com upload de imagem para Cloudinary
     if (imagemFile) {
       try {
+        console.log('☁️ Fazendo upload para Cloudinary...');
         const cloudinaryResult = await uploadToCloudinary(imagemFile, produto.id);
 
+        console.log('✅ Upload Cloudinary concluído:', cloudinaryResult.public_id);
+
+        // Salvar no banco
         await prisma.imagemproduto.create({
           data: {
-            id: produto.id,
+            id: cloudinaryResult.public_id, // Usar public_id como ID
             produtoId: produto.id,
             publicId: cloudinaryResult.public_id,
             textoAlt: nome,
@@ -509,10 +488,9 @@ export class ProdutosController {
             principal: true
           }
         });
-        console.log('✅ Imagem salva, public_id:', cloudinaryResult.public_id);
 
-      } catch (imageError) {
-        console.error('⚠️ Erro ao salvar imagem:', imageError);
+      } catch (imageError: any) {
+        console.error('⚠️ Erro ao salvar imagem no Cloudinary:', imageError.message);
         // Não falhar o produto se a imagem falhar
       }
     }
@@ -526,7 +504,16 @@ export class ProdutosController {
       }
     });
 
-    // Format response
+    // Construir URL da imagem
+    let imagemUrl = null;
+    if (produtoCriado?.imagemproduto[0]) {
+      imagemUrl = buildCloudinaryUrl(produtoCriado.imagemproduto[0].publicId, {
+        width: 600,
+        height: 600,
+        crop: 'fill'
+      });
+    }
+
     const response = {
       id: produtoCriado?.id,
       nome: produtoCriado?.nome,
@@ -538,9 +525,7 @@ export class ProdutosController {
       ativo: produtoCriado?.ativo,
       emDestaque: produtoCriado?.emDestaque,
       categoria: produtoCriado?.categoria[0]?.nome || null,
-      imagem: produtoCriado?.imagemproduto[0] 
-        ? buildCloudinaryUrl(produtoCriado.imagemproduto[0].publicId)
-        : null
+      imagem: imagemUrl
     };
 
     console.log('✅ Produto criado com sucesso:', produto.id);
@@ -553,9 +538,7 @@ export class ProdutosController {
 
   } catch (error: any) {
     console.error('❌ Erro ao criar produto:', error);
-    console.error('🔍 Stack:', error.stack);
-
-    // Erros específicos do Prisma
+    
     if (error.code === 'P2002') {
       return reply.status(400).send({
         success: false,
@@ -565,294 +548,228 @@ export class ProdutosController {
 
     reply.status(500).send({
       success: false,
-      message: 'Erro interno ao criar produto',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Erro interno ao criar produto'
     });
   }
 }
 
-  async atualizarProduto(
-    request: FastifyRequest<{ Params: { id: string } }>,
-    reply: FastifyReply
-  ) {
-    try {
-      console.log('🔄 Recebendo requisição para atualizar produto...');
-      console.log('📋 Headers:', request.headers);
-      console.log('🔗 Params:', request.params);
+ async atualizarProduto(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    console.log('🔄 Recebendo requisição para atualizar produto...');
+    const { id } = request.params;
 
-      const { id } = request.params;
+    // Verificar se produto existe
+    const produtoExistente = await prisma.produto.findUnique({
+      where: { id },
+      include: {
+        categoria: true,
+        imagemproduto: true
+      }
+    });
 
-      // Verificar se produto existe
-      const produtoExistente = await prisma.produto.findUnique({
-        where: { id },
-        include: {
-          categoria: true,
-          imagemproduto: true
-        }
+    if (!produtoExistente) {
+      return reply.status(404).send({
+        success: false,
+        message: 'Produto não encontrado'
       });
+    }
 
-      if (!produtoExistente) {
-        console.log(`❌ Produto ${id} não encontrado`);
-        return reply.status(404).send({
-          success: false,
-          message: 'Produto não encontrado'
-        });
-      }
+    const contentType = request.headers['content-type'] || '';
+    const isMultipart = contentType.includes('multipart/form-data');
 
-      console.log(`✅ Produto encontrado: ${produtoExistente.nome}`);
+    let dados: any = {};
+    let imagemFile: any = null;
+    let deletarImagem = false;
 
-      // Verificar se é multipart/form-data
-      const contentType = request.headers['content-type'] || '';
-      const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
-
-      console.log('🔍 Content-Type:', contentType);
-      console.log('🔍 É multipart?', isMultipart);
-
-      if (!isMultipart) {
-        console.log('⚠️  Content-Type não é multipart/form-data');
-        console.log('⚠️  Headers recebidos:', request.headers);
-      }
-
-
-      let dados: any = {};
-      let imagemFile: any = null;
-      let deletarImagem = false;
-
-      
-
-      if (isMultipart) {
-        console.log('🔄 Processando dados multipart...');
-        const parts = request.parts();
-        for await (const part of parts) {
-          console.log(`📝 Parte recebida - Campo: ${part.fieldname}, Tipo: ${part.type}`);
-
-          if (part.type === 'file') {
-            imagemFile = part;
-            console.log('📁 Arquivo recebido:', {
-              filename: part.filename,
-              mimetype: part.mimetype,
-              fieldname: part.fieldname
-            });
+    if (isMultipart && request.isMultipart()) {
+      console.log('🔄 Processando dados multipart...');
+      const parts = request.parts();
+      for await (const part of parts) {
+        if (part.type === 'file') {
+          imagemFile = part;
+          console.log('📁 Arquivo recebido:', part.filename);
+        } else {
+          // Converter valores
+          if (part.fieldname === 'ativo' || part.fieldname === 'emDestaque') {
+            dados[part.fieldname] = part.value === 'true' || part.value === '1';
+          } else if (part.fieldname === 'deletarImagem') {
+            deletarImagem = part.value === 'true';
+            console.log('🗑️  Deletar imagem:', deletarImagem);
           } else {
-            console.log(`📝 Campo ${part.fieldname}: ${part.value}`);
-
-            // Converter valores para tipos apropriados
-            if (part.fieldname === 'ativo' || part.fieldname === 'emDestaque') {
-              dados[part.fieldname] = part.value === 'true' || part.value === '1';
-            } else if (part.fieldname === 'preco' || part.fieldname === 'precoDesconto' ||
-              part.fieldname === 'percentualDesconto' || part.fieldname === 'estoque') {
-              dados[part.fieldname] = part.value ? part.value : null;
-            } else if (part.fieldname === 'deletarImagem') {
-              deletarImagem = part.value === 'true';
-              console.log('🗑️  Deletar imagem:', deletarImagem);
-            } else {
-              dados[part.fieldname] = part.value;
-            }
+            dados[part.fieldname] = part.value;
           }
         }
-      } else {
-        console.log('❌ ERRO: Dados não são multipart/form-data');
-        console.log('📄 Tentando ler como JSON...');
-        dados = request.body as any;
-        console.log('📄 Dados JSON:', dados);
       }
+    } else {
+      dados = request.body as any;
+    }
 
-      console.log('📊 Dados processados:', dados);
-      console.log('🖼️  Nova imagem?', imagemFile ? 'Sim' : 'Não');
-      console.log('🗑️  Deletar imagem?', deletarImagem);
-
-      // Verificar se novo SKU já existe (se for alterado)
-      if (dados.sku && dados.sku !== produtoExistente.sku) {
-        const skuExistente = await prisma.produto.findUnique({
-          where: { sku: dados.sku }
-        });
-
-        if (skuExistente) {
-          return reply.status(400).send({
-            success: false,
-            message: 'SKU já está em uso'
-          });
-        }
-      }
-      
-
-      // Verificar se categoria existe (se fornecida)
-      if (dados.categoriaId) {
-        const categoria = await prisma.categoria.findUnique({
-          where: { id: dados.categoriaId }
-        });
-
-        if (!categoria) {
-          return reply.status(400).send({
-            success: false,
-            message: 'Categoria não encontrada'
-          });
-        }
-      }
-
-      // Calcular percentual de desconto se alterado
-      let percentualDesconto = dados.percentualDesconto ? parseFloat(dados.percentualDesconto) : dados.percentualDesconto;
-
-      if (dados.precoDesconto !== undefined && !percentualDesconto && dados.precoDesconto !== null) {
-        const precoBase = dados.preco ? parseFloat(dados.preco) : produtoExistente.preco;
-        const precoDescontoNum = parseFloat(dados.precoDesconto);
-        percentualDesconto = precoBase > 0 ?
-          ((precoBase - precoDescontoNum) / precoBase) * 100 : 0;
-      }
-
-      // Preparar dados para atualização
-      const updateData: any = {
-        nome: dados.nome || produtoExistente.nome,
-        descricao: dados.descricao !== undefined ? dados.descricao : produtoExistente.descricao,
-        preco: dados.preco !== undefined ? parseFloat(dados.preco) : produtoExistente.preco,
-        estoque: dados.estoque !== undefined ? parseInt(dados.estoque) : produtoExistente.estoque,
-        sku: dados.sku || produtoExistente.sku,
-        ativo: dados.ativo !== undefined ? dados.ativo : produtoExistente.ativo,
-        emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : produtoExistente.emDestaque,
-        atualizadoEm: new Date()
-      };
-
-      // Tratar precoDesconto
-      if (dados.precoDesconto !== undefined) {
-        updateData.precoDesconto = dados.precoDesconto ?
-          parseFloat(dados.precoDesconto) :
-          null;
-      } else {
-        updateData.precoDesconto = produtoExistente.precoDesconto;
-      }
-
-      // CORREÇÃO: Tratar percentualDesconto corretamente
-      if (percentualDesconto !== undefined) {
-        if (percentualDesconto !== null && !isNaN(percentualDesconto)) {
-          // Garantir que seja número antes de usar toFixed
-          updateData.percentualDesconto = parseFloat(percentualDesconto.toFixed(2));
-        } else {
-          updateData.percentualDesconto = null;
-        }
-      } else {
-        updateData.percentualDesconto = produtoExistente.percentualDesconto;
-      }
-
-
-      // Adicionar data de término do desconto se fornecida
-      if (dados.descontoAte) {
-        updateData.descontoAte = new Date(dados.descontoAte);
-      }
-
-      console.log('📦 Dados para atualização:', updateData);
-
-      // Atualizar produto
-      const produtoAtualizado = await prisma.produto.update({
-        where: { id },
-        data: updateData
+    // Verificar se novo SKU já existe
+    if (dados.sku && dados.sku !== produtoExistente.sku) {
+      const skuExistente = await prisma.produto.findUnique({
+        where: { sku: dados.sku }
       });
 
-      // Atualizar relação com categoria se fornecida
-      if (dados.categoriaId !== undefined) {
-        if (dados.categoriaId) {
-          await prisma.produto.update({
-            where: { id },
-            data: {
-              categoria: {
-                set: [{ id: dados.categoriaId }]
-              }
-            }
-          });
-        } else {
-          // Remover todas as categorias
-          await prisma.produto.update({
-            where: { id },
-            data: {
-              categoria: {
-                set: []
-              }
-            }
-          });
-        }
-      }
-
-      // Gerenciar imagens
-      if (deletarImagem) {
-        // Deletar imagens do banco de dados
-        await prisma.imagemproduto.deleteMany({
-          where: { produtoId: id }
-        });
-
-        // Deletar arquivos físicos
-        await deleteProductFiles(id);
-
-        console.log('🗑️  Imagens deletadas');
-      }
-
-      if (imagemFile) {
-        try {
-          // Deletar imagem atual (se existir) antes de adicionar nova
-          await prisma.imagemproduto.deleteMany({
-            where: { produtoId: id }
-          });
-
-          // Deletar arquivos físicos antigos
-          await deleteProductFiles(id);
-
-          // Salvar nova imagem
-          const savedFile = await saveFile(imagemFile, id);
-          const timestamp = Date.now();
-          const imageUrlWithTimestamp = `${savedFile.url}?v=${timestamp}`;
-
-          await prisma.imagemproduto.create({
-            data: {
-              id: randomUUID(),
-              produtoId: id,
-              publicId:id,
-              url: imageUrlWithTimestamp,
-              textoAlt: dados.nome || produtoExistente.nome,
-              principal: true
-            }
-          });
-
-          console.log('✅ Nova imagem salva:', savedFile.url);
-        } catch (imageError) {
-          console.error('⚠️ Erro ao salvar imagem:', imageError);
-          // Não falhar a atualização se a imagem falhar
-        }
-      }
-
-      // Buscar produto atualizado com relações
-      const produtoFinal = await prisma.produto.findUnique({
-        where: { id },
-        include: {
-          categoria: true,
-          imagemproduto: true
-        }
-      });
-
-      console.log('✅ Produto atualizado com sucesso:', id);
-
-      reply.send({
-        success: true,
-        message: 'Produto atualizado com sucesso',
-        data: produtoFinal
-      });
-
-    } catch (error: any) {
-      console.error('❌ Erro ao atualizar produto:', error);
-      console.error('🔍 Stack trace:', error.stack);
-
-      // Erros específicos do Prisma
-      if (error.code === 'P2002') {
+      if (skuExistente) {
         return reply.status(400).send({
           success: false,
           message: 'SKU já está em uso'
         });
       }
+    }
 
-      reply.status(500).send({
+    // Preparar dados para atualização
+    const updateData: any = {
+      nome: dados.nome || produtoExistente.nome,
+      descricao: dados.descricao !== undefined ? dados.descricao : produtoExistente.descricao,
+      preco: dados.preco !== undefined ? parseFloat(dados.preco) : produtoExistente.preco,
+      estoque: dados.estoque !== undefined ? parseInt(dados.estoque) : produtoExistente.estoque,
+      sku: dados.sku || produtoExistente.sku,
+      ativo: dados.ativo !== undefined ? dados.ativo : produtoExistente.ativo,
+      emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : produtoExistente.emDestaque,
+      atualizadoEm: new Date()
+    };
+
+    // Atualizar produto
+    const produtoAtualizado = await prisma.produto.update({
+      where: { id },
+      data: updateData
+    });
+
+    // Atualizar relação com categoria
+    if (dados.categoriaId !== undefined) {
+      if (dados.categoriaId) {
+        await prisma.produto.update({
+          where: { id },
+          data: {
+            categoria: {
+              set: [{ id: dados.categoriaId }]
+            }
+          }
+        });
+      } else {
+        await prisma.produto.update({
+          where: { id },
+          data: {
+            categoria: {
+              set: []
+            }
+          }
+        });
+      }
+    }
+
+    // Gerenciar imagens com Cloudinary
+    if (deletarImagem) {
+      // Deletar imagens do Cloudinary e do banco de dados
+      const imagens = await prisma.imagemproduto.findMany({
+        where: { produtoId: id }
+      });
+
+      for (const imagem of imagens) {
+        try {
+          await cloudinary.uploader.destroy(imagem.publicId);
+          console.log(`🗑️  Imagem deletada do Cloudinary: ${imagem.publicId}`);
+        } catch (cloudinaryError) {
+          console.error('⚠️ Erro ao deletar do Cloudinary:', cloudinaryError);
+        }
+      }
+
+      await prisma.imagemproduto.deleteMany({
+        where: { produtoId: id }
+      });
+
+      console.log('🗑️  Imagens deletadas');
+    }
+
+    if (imagemFile) {
+      try {
+        console.log('☁️ Fazendo upload de nova imagem para Cloudinary...');
+        
+        // Primeiro, deletar imagem atual se existir
+        const imagensAtuais = await prisma.imagemproduto.findMany({
+          where: { produtoId: id }
+        });
+
+        for (const imagem of imagensAtuais) {
+          try {
+            await cloudinary.uploader.destroy(imagem.publicId);
+          } catch (error) {
+            console.error('⚠️ Erro ao deletar imagem anterior:', error);
+          }
+        }
+
+        // Deletar registros do banco
+        await prisma.imagemproduto.deleteMany({
+          where: { produtoId: id }
+        });
+
+        // Fazer upload da nova imagem
+        const cloudinaryResult = await uploadToCloudinary(imagemFile, id);
+
+        // Salvar no banco
+        await prisma.imagemproduto.create({
+          data: {
+            id: cloudinaryResult.public_id,
+            produtoId: id,
+            publicId: cloudinaryResult.public_id,
+            textoAlt: dados.nome || produtoExistente.nome,
+            url: cloudinaryResult.secure_url,
+            principal: true
+          }
+        });
+
+        console.log('✅ Nova imagem salva no Cloudinary:', cloudinaryResult.public_id);
+      } catch (imageError: any) {
+        console.error('⚠️ Erro ao salvar nova imagem:', imageError.message);
+      }
+    }
+
+    // Buscar produto atualizado
+    const produtoFinal = await prisma.produto.findUnique({
+      where: { id },
+      include: {
+        categoria: true,
+        imagemproduto: true
+      }
+    });
+
+    // Construir URLs das imagens
+    const produtoFormatado = {
+      ...produtoFinal,
+      imagemproduto: produtoFinal?.imagemproduto.map(img => ({
+        ...img,
+        url: buildCloudinaryUrl(img.publicId, { width: 600, height: 600, crop: 'fill' })
+      }))
+    };
+
+    console.log('✅ Produto atualizado com sucesso:', id);
+
+    reply.send({
+      success: true,
+      message: 'Produto atualizado com sucesso',
+      data: produtoFormatado
+    });
+
+  } catch (error: any) {
+    console.error('❌ Erro ao atualizar produto:', error);
+    
+    if (error.code === 'P2002') {
+      return reply.status(400).send({
         success: false,
-        message: 'Erro interno ao atualizar produto',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: 'SKU já está em uso'
       });
     }
+
+    reply.status(500).send({
+      success: false,
+      message: 'Erro interno ao atualizar produto'
+    });
   }
+}
 
   async deletarProduto(
     request: FastifyRequest<{ Params: { id: string } }>,
