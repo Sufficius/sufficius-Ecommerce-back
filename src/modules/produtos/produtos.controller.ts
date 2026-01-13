@@ -340,7 +340,7 @@ export class ProdutosController {
         }
       } else {
         console.log('⚠️  Não é multipart, tentando como JSON');
-        dados = request.body as any;
+        dados = request.body as string;
         console.log('📄 Dados JSON:', dados);
       }
 
