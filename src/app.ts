@@ -134,11 +134,10 @@ app.register(jwt, {
 app.register(multipart, {
     limits: {
         fileSize: 10 * 1024 * 1024, // 10MB
-        files: 1,
-        fieldSize: 10 * 1024 * 1024, // 10MB para campos
+        files: 5,
         headerPairs: 2000 // Aumentar limite de headers
     },
-    attachFieldsToBody: true,
+    attachFieldsToBody: 'keyValues', 
     sharedSchemaId: '#mySharedSchema',
     // Callback para monitorar upload de arquivos
     onFile: (part) => {
