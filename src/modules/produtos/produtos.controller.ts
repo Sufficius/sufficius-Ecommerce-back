@@ -307,173 +307,269 @@ export class ProdutosController {
     }
   }
 
-  async criarProduto(
-    request: FastifyRequest,
-    reply: FastifyReply
-  ) {
-    try {
-      console.log('📦 Recebendo requisição para criar produto...');
-      console.log('📋 Content-Type:', request.headers['content-type']);
+ async criarProduto(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    console.log('📦 === INÍCIO: Recebendo requisição para criar produto ===');
+    console.log('📋 Content-Type:', request.headers['content-type']);
+    console.log('📏 Content-Length:', request.headers['content-length']);
 
-      // Verificar se é multipart/form-data
-      const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
-      console.log('🔍 É multipart?', isMultipart);
+    const contentType = request.headers['content-type'] || '';
+    const isMultipart = contentType.includes('multipart/form-data');
+    
+    console.log('🔍 É multipart?', isMultipart);
 
-      console.log('🔄 Iniciando processamento multipart...');
+    interface DadosProduto {
+      nome?: string;
+      sku?: string;
+      preco?: string | number;
+      estoque?: string | number;
+      descricao?: string;
+      precoDesconto?: string | number;
+      percentualDesconto?: string | number;
+      categoriaId?: string;
+      ativo?: boolean | string;
+      emDestaque?: boolean | string;
+      descontoAte?: string;
+    }
 
-      let dados: any = {};
-      let imagemFile: any = null;
+    let dados: DadosProduto = {};
+    let imagemFile: any = null;
 
-      if (isMultipart) {
-        const parts = request.parts();
-        for await (const part of parts) {
-          if (part.type === 'file') {
-            imagemFile = part;
-          } else {
-            // Converter strings booleanas para boolean
-            if (part.fieldname === 'ativo' || part.fieldname === 'emDestaque') {
-              dados[part.fieldname] = part.value === 'true' || part.value === '1';
-            } else {
-              dados[part.fieldname] = part.value;
-            }
-          }
-        }
+    if (isMultipart && request.isMultipart()) {
+  console.log('🔄 Processando multipart...');
+  
+  try {
+    const parts = request.parts();
+    
+    for await (const part of parts) {
+      console.log(`📝 Campo: ${part.fieldname}, Tipo: ${part.type}`);
+      
+      if (part.type === 'file') {
+        imagemFile = part;
+        console.log(`📁 Arquivo: ${part.filename || 'sem nome'}`);
       } else {
-        console.log('⚠️  Não é multipart, tentando como JSON');
-        dados = request.body as string;
-        console.log('📄 Dados JSON:', dados);
-      }
-
-      console.log('📄 Dados recebidos:', dados);
-      console.log('📁 Imagem recebida:', imagemFile ? 'Sim' : 'Não');
-
-      // Validações obrigatórias
-      if (!dados.nome || !dados.sku || !dados.preco || dados.estoque === undefined) {
-        return reply.status(400).send({
-          success: false,
-          message: 'Campos obrigatórios faltando: nome, sku, preco, estoque'
-        });
-      }
-
-      // Verificar se SKU já existe
-      const skuExistente = await prisma.produto.findUnique({
-        where: { sku: dados.sku }
-      });
-
-      if (skuExistente) {
-        return reply.status(400).send({
-          success: false,
-          message: 'SKU já está em uso'
-        });
-      }
-
-      const produtoId = `prod_${Date.now()}_${randomUUID().substring(0, 8)}`;
-
-         // Calcular percentual de desconto se não fornecido
-      let percentualDesconto = dados.percentualDesconto;
-      if (dados.precoDesconto && !percentualDesconto) {
-        percentualDesconto = ((parseFloat(dados.preco) - parseFloat(dados.precoDesconto)) / parseFloat(dados.preco)) * 100;
-      }
-
-      // Preparar dados para criação
-      const produto = await  prisma.produto.create({
-        data:{
-          id: produtoId,
-          nome: dados.nome,
-          descricao: dados.descricao || null,
-          preco: parseFloat(dados.preco),
-          precoDesconto: dados.precoDesconto ? parseFloat(dados.precoDesconto) : null,
-          percentualDesconto: percentualDesconto ? parseFloat(percentualDesconto.toFixed(2)) : null,
-          estoque: parseInt(dados.estoque),
-          sku: dados.sku,
-          ativo: dados.ativo !== undefined ? dados.ativo : true,
-          emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : false,
-
-          // Conectar categoria se fornecida
-          ...(dados.categoriaId && {
-            categoria: {
-              connect: [{ id: dados.categoriaId }]
-            }
-          })
-        }
-      });
-
-      // Lidar com upload de imagem
-      if (imagemFile) {
-        try {
-          const cloudinaryResult = await uploadToCloudinary(imagemFile, produto.id);
-
-          await prisma.imagemproduto.create({
-            data: {
-              id: produto.id,
-              produtoId: produto.id,
-              publicId: cloudinaryResult.public_id,
-              textoAlt: dados.nome,
-              url: cloudinaryResult.secure_url,
-              principal: true
-            }
-          });
-          console.log('✅ Imagem salva, public_id:', cloudinaryResult.public_id);
-
-        } catch (imageError) {
-          console.error('⚠️ Erro ao salvar imagem:', imageError);
-          // Não falhar o produto se a imagem falhar
+        // ✅ CORREÇÃO: Acessar 'value' apenas se for MultipartField
+        // TypeScript precisa de type guard
+        if ('value' in part) {
+          const valor = String(part.value); // Agora seguro
+          
+          // ✅ CONVERSÕES CORRETAS
+          switch (part.fieldname) {
+            case 'ativo':
+            case 'emDestaque':
+              dados[part.fieldname] = valor === 'true' || valor === '1' || valor === 'on';
+              console.log(`✅ ${part.fieldname} convertido para:`, dados[part.fieldname]);
+              break;
+              
+            case 'preco':
+            case 'precoDesconto':
+            case 'percentualDesconto':
+            case 'estoque':
+              dados[part.fieldname] = valor.trim();
+              console.log(`📊 ${part.fieldname}:`, dados[part.fieldname]);
+              break;
+              
+            default:
+              dados[part.fieldname as keyof DadosProduto] = valor;
+              console.log(`📝 ${part.fieldname}:`, valor);
+              break;
+          }
+        } else {
+          console.log(`⚠️  Campo ${part} não tem valor (tipo: ${part})`);
         }
       }
-
-      // Buscar produto criado com relações
-      const produtoCriado = await prisma.produto.findUnique({
-        where: { id: produto.id },
-        include: {
-          categoria: true,
-          imagemproduto: true
-        }
-      });
-
-      // Format response
-      const response = {
-        id: produtoCriado?.id,
-        nome: produtoCriado?.nome,
-        descricao: produtoCriado?.descricao,
-        preco: produtoCriado?.preco,
-        precoDesconto: produtoCriado?.precoDesconto,
-        estoque: produtoCriado?.estoque,
-        sku: produtoCriado?.sku,
-        ativo: produtoCriado?.ativo,
-        emDestaque: produtoCriado?.emDestaque,
-        categoria: produtoCriado?.categoria[0]?.nome || null,
-        // Construir URL para resposta
-        imagem: produtoCriado?.imagemproduto[0] 
-          ? buildCloudinaryUrl(produtoCriado?.imagemproduto[0].publicId)
-          : null
-      };
-
-      console.log('✅ Produto criado com sucesso:', produto.id);
-
-      reply.status(201).send({
-        success: true,
-        message: 'Produto criado com sucesso',
-        data: response
-      });
-
-    } catch (error: any) {
-      console.error('❌ Erro ao criar produto:', error);
-
-      // Erros específicos do Prisma
-      if (error.code === 'P2002') {
-        return reply.status(400).send({
-          success: false,
-          message: 'SKU já está em uso'
-        });
+    }
+    
+    console.log('✅ Multipart processado com sucesso!');
+    
+  } catch (multipartError: any) {
+    console.error('❌ ERRO no multipart:', multipartError.message);
+    
+    // Fallback para JSON
+    console.log('🔄 Tentando fallback para JSON...');
+    try {
+      const body = request.body as DadosProduto;
+      if (body) {
+        dados = body;
+        console.log('📄 Dados do fallback:', dados);
       }
-
-      reply.status(500).send({
-        success: false,
-        message: 'Erro interno ao criar produto',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+    } catch (jsonError) {
+      console.error('❌ Fallback JSON falhou:', jsonError);
     }
   }
+}
+
+    // ✅ DEBUG DETALHADO
+    console.log('📊 === DADOS FINAIS ===');
+    console.log('Tipo:', typeof dados);
+    console.log('Conteúdo:', JSON.stringify(dados, null, 2));
+    
+    if (dados && typeof dados === 'object') {
+      Object.entries(dados).forEach(([key, value]) => {
+        console.log(`  ${key}: ${value} (${typeof value})`);
+      });
+    }
+
+    // ✅ VALIDAÇÃO MELHORADA
+    console.log('🔍 === VALIDAÇÃO ===');
+    
+    // Converter valores para o formato correto para validação
+    const nome = dados.nome ? String(dados.nome).trim() : '';
+    const sku = dados.sku ? String(dados.sku).trim() : '';
+    const preco = dados.preco ? String(dados.preco) : '';
+    const estoque = dados.estoque !== undefined ? String(dados.estoque) : '';
+    
+    console.log('Nome:', nome ? `"${nome}"` : 'FALTANDO');
+    console.log('SKU:', sku ? `"${sku}"` : 'FALTANDO');
+    console.log('Preço:', preco ? `"${preco}"` : 'FALTANDO');
+    console.log('Estoque:', estoque !== '' ? `"${estoque}"` : 'FALTANDO');
+
+    if (!nome || !sku || !preco || estoque === '') {
+      console.log('❌ CAMPOS FALTANDO!');
+      console.log('Dados completos recebidos:', dados);
+      
+      return reply.status(400).send({
+        success: false,
+        message: 'Campos obrigatórios faltando: nome, sku, preco, estoque',
+        debug: {
+          nomePresente: !!nome,
+          skuPresente: !!sku,
+          precoPresente: !!preco,
+          estoquePresente: estoque !== ''
+        }
+      });
+    }
+
+    console.log('✅ Todos os campos obrigatórios OK!');
+
+    // Verificar se SKU já existe
+    const skuExistente = await prisma.produto.findUnique({
+      where: { sku: sku }
+    });
+
+    if (skuExistente) {
+      return reply.status(400).send({
+        success: false,
+        message: 'SKU já está em uso'
+      });
+    }
+
+    const produtoId = `prod_${Date.now()}_${randomUUID().substring(0, 8)}`;
+
+    // Calcular percentual de desconto se não fornecido
+    let percentualDesconto = dados.percentualDesconto ? 
+      parseFloat(String(dados.percentualDesconto)) : undefined;
+    
+    if (dados.precoDesconto && !percentualDesconto) {
+      const precoNum = parseFloat(preco);
+      const precoDescontoNum = parseFloat(String(dados.precoDesconto));
+      percentualDesconto = ((precoNum - precoDescontoNum) / precoNum) * 100;
+    }
+
+    // Preparar dados para criação
+    const produto = await prisma.produto.create({
+      data: {
+        id: produtoId,
+        nome: nome,
+        descricao: dados.descricao ? String(dados.descricao) : null,
+        preco: parseFloat(preco),
+        precoDesconto: dados.precoDesconto ? 
+          parseFloat(String(dados.precoDesconto)) : null,
+        percentualDesconto: percentualDesconto ? 
+          parseFloat(percentualDesconto.toFixed(2)) : null,
+        estoque: parseInt(estoque),
+        sku: sku,
+        ativo: dados.ativo !== undefined ? 
+          (typeof dados.ativo === 'boolean' ? dados.ativo : dados.ativo === 'true') : true,
+        emDestaque: dados.emDestaque !== undefined ? 
+          (typeof dados.emDestaque === 'boolean' ? dados.emDestaque : dados.emDestaque === 'true') : false,
+        ...(dados.categoriaId && {
+          categoria: {
+            connect: [{ id: String(dados.categoriaId) }]
+          }
+        })
+      }
+    });
+
+    // Lidar com upload de imagem
+    if (imagemFile) {
+      try {
+        const cloudinaryResult = await uploadToCloudinary(imagemFile, produto.id);
+
+        await prisma.imagemproduto.create({
+          data: {
+            id: produto.id,
+            produtoId: produto.id,
+            publicId: cloudinaryResult.public_id,
+            textoAlt: nome,
+            url: cloudinaryResult.secure_url,
+            principal: true
+          }
+        });
+        console.log('✅ Imagem salva, public_id:', cloudinaryResult.public_id);
+
+      } catch (imageError) {
+        console.error('⚠️ Erro ao salvar imagem:', imageError);
+        // Não falhar o produto se a imagem falhar
+      }
+    }
+
+    // Buscar produto criado com relações
+    const produtoCriado = await prisma.produto.findUnique({
+      where: { id: produto.id },
+      include: {
+        categoria: true,
+        imagemproduto: true
+      }
+    });
+
+    // Format response
+    const response = {
+      id: produtoCriado?.id,
+      nome: produtoCriado?.nome,
+      descricao: produtoCriado?.descricao,
+      preco: produtoCriado?.preco,
+      precoDesconto: produtoCriado?.precoDesconto,
+      estoque: produtoCriado?.estoque,
+      sku: produtoCriado?.sku,
+      ativo: produtoCriado?.ativo,
+      emDestaque: produtoCriado?.emDestaque,
+      categoria: produtoCriado?.categoria[0]?.nome || null,
+      imagem: produtoCriado?.imagemproduto[0] 
+        ? buildCloudinaryUrl(produtoCriado.imagemproduto[0].publicId)
+        : null
+    };
+
+    console.log('✅ Produto criado com sucesso:', produto.id);
+
+    reply.status(201).send({
+      success: true,
+      message: 'Produto criado com sucesso',
+      data: response
+    });
+
+  } catch (error: any) {
+    console.error('❌ Erro ao criar produto:', error);
+    console.error('🔍 Stack:', error.stack);
+
+    // Erros específicos do Prisma
+    if (error.code === 'P2002') {
+      return reply.status(400).send({
+        success: false,
+        message: 'SKU já está em uso'
+      });
+    }
+
+    reply.status(500).send({
+      success: false,
+      message: 'Erro interno ao criar produto',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+}
 
   async atualizarProduto(
     request: FastifyRequest<{ Params: { id: string } }>,
