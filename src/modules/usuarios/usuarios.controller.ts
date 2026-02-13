@@ -1,7 +1,9 @@
+// src/controllers/UsuariosController.ts - VERSÃO CORRIGIDA
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
+import { success } from 'zod';
+import { Console } from 'winston/lib/winston/transports';
 
 const prisma = new PrismaClient();
 
@@ -12,6 +14,9 @@ interface CriarUsuarioBody {
   senha: string;
   telefone?: string;
   tipo?: string;
+  dataNascimento?: string;
+  endereco?: string;
+  fotoUrl?:string;
 }
 
 interface LoginBody {
@@ -25,6 +30,8 @@ interface AtualizarUsuarioBody {
   telefone?: string;
   senha?: string;
   tipo?: string;
+  dataNascimento?: string;
+  fotoUrl?:string;
 }
 
 interface ListarUsuariosQuery {
@@ -35,20 +42,49 @@ interface ListarUsuariosQuery {
 }
 
 export class UsuariosController {
-  // Função de validação
+  // Função de validação de email
   private validarEmail(email: string): boolean {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   }
 
+  // Função para validar senha
+  private validarSenha(senha: string): { valido: boolean; mensagem?: string } {
+    if (senha.length < 6) {
+      return { valido: false, mensagem: 'Senha deve ter pelo menos 6 caracteres' };
+    }
+    return { valido: true };
+  }
+
   // Criar novo usuário
   async criarUsuario(request: FastifyRequest<{ Body: CriarUsuarioBody }>, reply: FastifyReply) {
     try {
-      const { nome, email, senha, telefone, tipo = "CLIENTE" } = request.body;
-      const {id} = request.params as any;
-      console.log('📝 Criando usuário:', { nome, email, tipo });
+      console.log('📝 Criando novo usuário...');
 
-      // Validação básica
+      // Verificar autenticação (apenas ADMIN pode criar usuários)
+      const usuarioAutenticado = request.usuario;
+
+      console.log('Usuário autenticado:', usuarioAutenticado);
+      console.log('Tipo do usuário:', usuarioAutenticado?.tipo);
+
+      if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
+        console.log('❌ Acesso negado. Usuário não é ADMIN:', usuarioAutenticado?.tipo);
+        return reply.status(403).send({
+          success: false,
+          error: 'Apenas administradores podem criar usuários',
+          debug: {
+            usuarioAutenticado,
+            esperado: 'ADMIN',
+            recebido: usuarioAutenticado?.tipo
+          }
+        });
+      }
+
+      const { nome, email, tipo, telefone, senha, dataNascimento,endereco, fotoUrl } = request.body;
+
+      console.log('Dados recebidos:', { nome, email, tipo, telefone, dataNascimento, fotoUrl });
+
+      // Validações básicas
       if (!nome || !email || !senha) {
         return reply.status(400).send({
           success: false,
@@ -63,17 +99,11 @@ export class UsuariosController {
         });
       }
 
-      if (senha.length < 6) {
+      const validacaoSenha = this.validarSenha(senha);
+      if (!validacaoSenha.valido) {
         return reply.status(400).send({
           success: false,
-          error: 'Senha deve ter pelo menos 6 caracteres'
-        });
-      }
-
-      if (tipo && !['CLIENTE', 'OPERADOR', 'ADMIN'].includes(tipo)) {
-        return reply.status(400).send({
-          success: false,
-          error: 'Tipo de usuário inválido'
+          error: validacaoSenha.mensagem
         });
       }
 
@@ -89,41 +119,106 @@ export class UsuariosController {
         });
       }
 
+      // Verificar se telefone já existe (se fornecido)
+      if (telefone && telefone.trim() !== '') {
+        const telefoneExistente = await prisma.usuario.findUnique({
+          where: { telefone }
+        });
+
+        if (telefoneExistente) {
+          return reply.status(409).send({
+            success: false,
+            error: 'Telefone já cadastrado'
+          });
+        }
+      }
+
+      // Validar tipo de usuário
+      const tiposPermitidos = ['CLIENTE', 'OPERADOR', 'ADMIN'];
+      const tipoUsuario = tipo && tiposPermitidos.includes(tipo) ? tipo : 'CLIENTE';
+
       // Criptografar senha
       const senhaCriptografada = await bcrypt.hash(senha, 10);
 
+      // Preparar dados para criação
+      const dadosUsuario: any = {
+        nome,
+        email,
+        senhaHash: senhaCriptografada,
+        telefone: telefone || '',
+        fotoUrl: fotoUrl || null,
+        tipo: tipoUsuario,
+      };
+
+      // Adicionar data de nascimento se fornecida
+      if (dataNascimento) {
+        dadosUsuario.dataNascimento = new Date(dataNascimento);
+      }
+
+      console.log('Dados do usuário a ser criado:', dadosUsuario);
+
       // Criar usuário
-      const novoUsuario = await prisma.usuario.create({
-        data: {
-          nome,
-          email,
-          senhaHash: senhaCriptografada,
-          telefone: telefone || "",
-          tipo: "CLIENTE",
-          id:id
-        },
+      const usuario = await prisma.usuario.create({
+        data: dadosUsuario
+      });
+
+      // Criar endereço se fornecido
+      if (endereco) {
+        try {
+          await prisma.endereco.create({
+            data: {
+              id: usuario.id,
+              rua: endereco,
+              usuarioId: usuario.id,
+              padrao: true,
+              bairro: 'Luanda',
+              cidade: 'Luanda',
+              numero: 's/n'
+            }
+          });
+        } catch (enderecoError) {
+          console.error('Erro ao criar endereço:', enderecoError);
+          // Não falhar se o endereço não for criado
+        }
+      }
+
+      // Retornar resposta sem a senha
+      const usuarioCriado = await prisma.usuario.findUnique({
+        where: { id: usuario.id },
         select: {
           id: true,
           nome: true,
           email: true,
           telefone: true,
           tipo: true,
+          fotoUrl:true,
+          dataNascimento: true,
           criadoEm: true,
-          atualizadoEm: true
+          atualizadoEm: true,
         }
       });
+
+      console.log('✅ Usuário criado com sucesso:', usuarioCriado?.id);
 
       return reply.status(201).send({
         success: true,
         message: 'Usuário criado com sucesso',
-        data: novoUsuario
+        data: usuarioCriado
       });
 
     } catch (error) {
       console.error('❌ Erro ao criar usuário:', error);
+
+      // Verificar se é erro do Prisma
+      if (error instanceof Error) {
+        console.error('Detalhes do erro:', error.message);
+        console.error('Stack trace:', error.stack);
+      }
+
       return reply.status(500).send({
         success: false,
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor ao criar usuário',
+        details: process.env.NODE_ENV === 'development' && error instanceof Error ? error.message : undefined
       });
     }
   }
@@ -132,7 +227,7 @@ export class UsuariosController {
   async listarUsuarios(request: FastifyRequest<{ Querystring: ListarUsuariosQuery }>, reply: FastifyReply) {
     try {
       const { page = '1', limit = '10', busca, tipo } = request.query;
-      
+
       const pageNumber = parseInt(page);
       const limitNumber = parseInt(limit);
       const skip = (pageNumber - 1) * limitNumber;
@@ -141,11 +236,12 @@ export class UsuariosController {
 
       // Construir condições de busca
       const whereClause: any = {};
-      
+
       if (busca) {
         whereClause.OR = [
           { nome: { contains: busca, mode: 'insensitive' } },
-          { email: { contains: busca, mode: 'insensitive' } }
+          { email: { contains: busca, mode: 'insensitive' } },
+          { telefone: { contains: busca, mode: 'insensitive' } }
         ];
       }
 
@@ -165,8 +261,11 @@ export class UsuariosController {
             email: true,
             telefone: true,
             tipo: true,
+            dataNascimento: true,
             criadoEm: true,
-            atualizadoEm: true
+            atualizadoEm: true,
+            fotoUrl:true,
+            status:true,
           },
           skip,
           take: limitNumber,
@@ -175,9 +274,10 @@ export class UsuariosController {
         prisma.usuario.count({ where: whereClause })
       ]);
 
-      console.log(`✅ Encontrados ${usuarios.length} usuários de ${total} total`);
+      console.log("Usuário: ", usuarios);
 
-      // Formatar resposta para o frontend
+
+      // Formatar resposta
       return reply.send({
         success: true,
         data: usuarios.map(usuario => ({
@@ -186,9 +286,11 @@ export class UsuariosController {
           email: usuario.email,
           telefone: usuario.telefone,
           tipo: usuario.tipo,
-          status: 'ativo', // Adicione lógica real se necessário
+          dataNascimento: usuario.dataNascimento?.toISOString().split('T')[0],
           criadoEm: usuario.criadoEm.toISOString(),
-          atualizadoEm: usuario.atualizadoEm.toISOString()
+          atualizadoEm: usuario.atualizadoEm.toISOString(),
+          status: usuario.status,
+          fotoUrl: usuario.fotoUrl
         })),
         pagination: {
           page: pageNumber,
@@ -222,8 +324,10 @@ export class UsuariosController {
           email: true,
           telefone: true,
           tipo: true,
+          dataNascimento: true,
           criadoEm: true,
-          atualizadoEm: true
+          atualizadoEm: true,
+          fotoUrl:true
         }
       });
 
@@ -236,7 +340,10 @@ export class UsuariosController {
 
       return reply.send({
         success: true,
-        data: usuario
+        data: {
+          ...usuario,
+          dataNascimento: usuario.dataNascimento?.toISOString().split('T')[0],
+        }
       });
 
     } catch (error) {
@@ -258,9 +365,19 @@ export class UsuariosController {
   ) {
     try {
       const { id } = request.params;
-      const { nome, email, telefone, senha, tipo } = request.body;
+      const { nome, email, telefone, senha, tipo, dataNascimento } = request.body;
 
       console.log('✏️ Atualizando usuário ID:', id, { nome, email, tipo });
+
+      // Verificar autenticação
+      const usuarioAutenticado = request.usuario;
+
+      if (!usuarioAutenticado) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Não autorizado'
+        });
+      }
 
       // Verificar se usuário existe
       const usuarioExistente = await prisma.usuario.findUnique({
@@ -276,14 +393,41 @@ export class UsuariosController {
 
       // Preparar dados para atualização
       const dadosAtualizacao: any = {};
-      
+
       if (nome) dadosAtualizacao.nome = nome;
-      if (telefone !== undefined) dadosAtualizacao.telefone = telefone;
-      
+
+      if (telefone !== undefined) {
+        if (telefone !== usuarioExistente.telefone) {
+          if (telefone && telefone.trim() !== '') {
+            const telefoneExistente = await prisma.usuario.findFirst({
+              where: {
+                telefone: telefone,
+                NOT: { id: id }
+              }
+            });
+
+            if (telefoneExistente) {
+              return reply.status(409).send({
+                success: false,
+                error: 'Telefone já está em uso por outro usuário'
+              });
+            }
+            dadosAtualizacao.telefone = telefone;
+          }
+          else {
+            dadosAtualizacao.telefone = '';
+          }
+        }
+      }
+
       if (tipo && ['CLIENTE', 'OPERADOR', 'ADMIN'].includes(tipo)) {
         dadosAtualizacao.tipo = tipo;
       }
-      
+
+      if (dataNascimento) {
+        dadosAtualizacao.dataNascimento = new Date(dataNascimento);
+      }
+
       // Verificar se email já existe (se estiver sendo alterado)
       if (email && email !== usuarioExistente.email) {
         if (!this.validarEmail(email)) {
@@ -296,7 +440,7 @@ export class UsuariosController {
         const emailExistente = await prisma.usuario.findUnique({
           where: { email }
         });
-        
+
         if (emailExistente) {
           return reply.status(409).send({
             success: false,
@@ -308,16 +452,23 @@ export class UsuariosController {
 
       // Se houver senha, criptografar
       if (senha) {
-        if (senha.length < 6) {
+        const validacaoSenha = this.validarSenha(senha);
+        if (!validacaoSenha.valido) {
           return reply.status(400).send({
             success: false,
-            error: 'Senha deve ter pelo menos 6 caracteres'
+            error: validacaoSenha.mensagem
           });
         }
         dadosAtualizacao.senhaHash = await bcrypt.hash(senha, 10);
       }
 
-      // Atualizar usuário
+      if (Object.keys(dadosAtualizacao).length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Nenhum dado fornecido para atualização'
+        });
+      }
+
       const usuarioAtualizado = await prisma.usuario.update({
         where: { id: id },
         data: dadosAtualizacao,
@@ -327,6 +478,8 @@ export class UsuariosController {
           email: true,
           telefone: true,
           tipo: true,
+          fotoUrl:true,
+          dataNascimento: true,
           criadoEm: true,
           atualizadoEm: true
         }
@@ -335,24 +488,60 @@ export class UsuariosController {
       return reply.send({
         success: true,
         message: 'Usuário atualizado com sucesso',
-        data: usuarioAtualizado
+        data: {
+          ...usuarioAtualizado,
+          dataNascimento: usuarioAtualizado.dataNascimento?.toISOString().split('T')[0]
+        }
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Erro ao atualizar usuário:', error);
+
+      if (error.code === 'P2002') {
+        const target = error.meta?.target;
+        let mensagem = 'Erro de duplicidade';
+
+        if (target?.includes('telefone')) {
+          mensagem = 'Telefone já está em uso por outro usuário';
+        } else if (target?.includes('email')) {
+          mensagem = 'Email já está em uso por outro usuário';
+        }
+
+        return reply.status(409).send({
+          success: false,
+          error: mensagem,
+          details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+      }
+
+      if (error.code === 'P2003' || error.message.includes('must not be null')) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Campo telefone não pode ser nulo. Use uma string vazia "" se necessário.'
+        });
+      }
+
       return reply.status(500).send({
         success: false,
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
-
   // Deletar usuário
   async deletarUsuario(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     try {
       const { id } = request.params;
 
-      console.log('🗑️ Deletando usuário ID:', id);
+      // Verificar autenticação (apenas ADMIN pode deletar)
+      const usuarioAutenticado = request.usuario;
+
+      if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
+        return reply.status(403).send({
+          success: false,
+          error: 'Apenas administradores podem deletar usuários'
+        });
+      }
 
       // Verificar se usuário existe
       const usuarioExistente = await prisma.usuario.findUnique({
@@ -366,14 +555,13 @@ export class UsuariosController {
         });
       }
 
-      // Não permitir deletar o próprio usuário admin (se necessário)
-      // const usuarioLogado = (request as any).usuarioId;
-      // if (usuarioLogado === id) {
-      //   return reply.status(400).send({
-      //     success: false,
-      //     error: 'Não é possível deletar seu próprio usuário'
-      //   });
-      // }
+      // Não permitir deletar o próprio usuário
+      if (usuarioAutenticado.id === id) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Não é possível deletar seu próprio usuário'
+        });
+      }
 
       // Deletar usuário
       await prisma.usuario.delete({
@@ -398,8 +586,6 @@ export class UsuariosController {
   async login(request: FastifyRequest<{ Body: LoginBody }>, reply: FastifyReply) {
     try {
       const { email, senha } = request.body;
-
-      console.log('🔐 Login para email:', email);
 
       // Validação
       if (!email || !senha) {
@@ -438,16 +624,14 @@ export class UsuariosController {
         });
       }
 
-      // Gerar token JWT
-      const token = jwt.sign(
-        {
-          id: usuario.id,
-          email: usuario.email,
-          tipo: usuario.tipo
-        },
-        process.env.JWT_SECRET || 'seu_segredo_jwt',
-        { expiresIn: '24h' }
-      );
+      // Gerar token JWT usando o Fastify JWT
+      const token = await reply.jwtSign({
+        id: usuario.id,
+        email: usuario.email,
+        tipo: usuario.tipo
+      }, {
+        expiresIn: '7d'
+      });
 
       return reply.send({
         success: true,
@@ -458,7 +642,9 @@ export class UsuariosController {
             id: usuario.id,
             nome: usuario.nome,
             email: usuario.email,
-            tipo: usuario.tipo
+            tipo: usuario.tipo,
+            telefone: usuario.telefone,
+            fotoUrl: usuario.fotoUrl
           }
         }
       });
@@ -475,28 +661,28 @@ export class UsuariosController {
   // Obter perfil do usuário autenticado
   async obterPerfil(request: FastifyRequest, reply: FastifyReply) {
     try {
-      // O ID do usuário vem do hook de autenticação
-      const usuarioId = (request as any).usuarioId;
+      const usuarioAutenticado = request.usuario;
 
-      if (!usuarioId) {
+      if (!usuarioAutenticado) {
         return reply.status(401).send({
           success: false,
           error: 'Não autorizado'
         });
       }
 
-      console.log('👤 Buscando perfil do usuário ID:', usuarioId);
 
       const usuario = await prisma.usuario.findUnique({
-        where: { id: usuarioId },
+        where: { id: usuarioAutenticado.id },
         select: {
           id: true,
           nome: true,
           email: true,
           telefone: true,
           tipo: true,
+          dataNascimento: true,
+          fotoUrl:true,
           criadoEm: true,
-          atualizadoEm: true
+          atualizadoEm: true,
         }
       });
 
@@ -509,7 +695,10 @@ export class UsuariosController {
 
       return reply.send({
         success: true,
-        data: usuario
+        data: {
+          ...usuario,
+          dataNascimento: usuario.dataNascimento?.toISOString().split('T')[0],
+        }
       });
 
     } catch (error) {
@@ -521,23 +710,46 @@ export class UsuariosController {
     }
   }
 
-  // Método adicional: Alterar status do usuário
-  async alterarStatusUsuario(request: FastifyRequest<{ 
+  // Alterar status do usuário
+  async alterarStatusUsuario(request: FastifyRequest<{
     Params: { id: string };
     Body: { status: string }
   }>, reply: FastifyReply) {
     try {
       const { id } = request.params;
-      const { status } = request.body;
+      const {status} = request.body;
 
-      console.log('🔄 Alterando status do usuário ID:', id, 'para:', status);
+
+      let novoStatus = ""
+      if(status === "Ativo"){
+        novoStatus = "Inativo"
+      }
+      else {
+        novoStatus = status
+      }
+    
+      // Verificar autenticação (apenas ADMIN pode alterar status)
+      const usuarioAutenticado = request.usuario;
+
+      if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
+        return reply.status(403).send({
+          success: false,
+          error: 'Apenas administradores podem alterar status'
+        });
+      }
 
       // Verificar se status é válido
-      if (!['ativo', 'inativo'].includes(status)) {
+      if (!['Ativo', 'Inativo'].includes(status)) {
         return reply.status(400).send({
           success: false,
           error: 'Status inválido. Use "ativo" ou "inativo"'
         });
+      }
+      else{
+        return reply.status(200).send({
+          success:true,
+          data: novoStatus
+        })
       }
 
       // Verificar se usuário existe
@@ -552,8 +764,6 @@ export class UsuariosController {
         });
       }
 
-      // Adicione um campo 'status' no seu modelo Prisma se necessário
-      // Por enquanto, retornamos um placeholder
       return reply.send({
         success: true,
         message: `Status do usuário alterado para ${status}`,
@@ -572,14 +782,24 @@ export class UsuariosController {
     }
   }
 
-  // Método adicional: Resetar senha
-  async resetarSenha(request: FastifyRequest<{ 
+  // Resetar senha
+  async resetarSenha(request: FastifyRequest<{
     Params: { id: string }
   }>, reply: FastifyReply) {
     try {
       const { id } = request.params;
 
       console.log('🔄 Resetando senha do usuário ID:', id);
+
+      // Verificar autenticação (apenas ADMIN pode resetar senha)
+      const usuarioAutenticado = request.usuario;
+
+      if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
+        return reply.status(403).send({
+          success: false,
+          error: 'Apenas administradores podem resetar senhas'
+        });
+      }
 
       // Verificar se usuário existe
       const usuarioExistente = await prisma.usuario.findUnique({

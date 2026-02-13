@@ -2,161 +2,511 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { pipeline } from 'stream/promises';
-import fs from 'fs';
+import fs, { stat } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import {v2 as  cloudinary} from "cloudinary";
+import { getProductImageUrl, FALLBACK_PRODUCT_IMAGE } from '../../utils/cloudinary';
 
+// Interfaces
+interface ProdutoInput {
+  nome?: string;
+  preco?: string | number;
+  quantidade?: string | number;
+  descricao?: string;
+  id_categoria?: string;
+  status?: string;
+  emDestaque?: string | boolean;
+  deletarImagem?: string;
+}
 
-cloudinary.config({
-  cloud_name:process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:process.env.CLOUDINARY_API_KEY,
-  api_secret:process.env.CLOUDINARY_API_SECRET,
-  secure:true,
-})
+interface ProdutosMaisVendidosQuery {
+  limit?: string;
+  periodo?: string;
+  categoria?: string;
+}
 
-// Função para fazer upload e retornar APENAS public_id
-async function uploadToCloudinary(file: any, produtoId: string): Promise<{
-  public_id: string;
-  secure_url: string;
+interface PaginationQuery {
+  page?: string;
+  limit?: string;
+  busca?: string;
+  categoria?: string;
+  status?: string;
+  ordenar?: string;
+}
+
+interface SavedFile {
+  filename: string;
+  filepath: string;
+  mimetype: string;
+  size: number;
+  id?: string;           // ← NOVO: public_id do Cloudinary
+  cloudinaryUrl?: string;      // ← NOVO: URL do Cloudinary
+}
+
+// Configurar diretório de uploads temporários (para processamento antes do Cloudinary)
+const getUploadDir = () => {
+  if (process.env.RENDER) {
+    return '/opt/render/project/src/uploads';
+  }
+  return path.join(process.cwd(), 'uploads', '');
+};
+
+const TEMP_UPLOAD_DIR = getUploadDir();
+
+// Criar diretório temporário se não existir
+if (!fs.existsSync(TEMP_UPLOAD_DIR)) {
+  fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
+}
+
+async function uploadToCloudinary(fileBuffer: Buffer, produtoId: string, originalFilename: string): Promise<{
+  id: string;
+  secureUrl: string;
+  format: string;
+  bytes: number;
+  width: number;
+  height: number;
 }> {
-  return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
+  try {
+    console.log('='.repeat(50));
+    console.log('☁️  INICIANDO UPLOAD PARA CLOUDINARY');
+    console.log('='.repeat(50));
+
+    console.log('📦 Dados do upload:');
+    console.log('   Produto ID:', produtoId);
+    console.log('   Nome original:', originalFilename);
+    console.log('   Tamanho do buffer:', fileBuffer.length, 'bytes');
+    console.log('   Tamanho em MB:', (fileBuffer.length / 1024 / 1024).toFixed(2), 'MB');
+
+    // 1. Verificar variáveis de ambiente
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'sufficius-commerce';
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET || 'ml_default';
+
+    console.log('🔐 Configuração Cloudinary:');
+    console.log('   Cloud Name:', cloudName);
+    console.log('   API Key:', apiKey ? '***' + apiKey.slice(-4) : 'NÃO CONFIGURADA');
+    console.log('   Upload Preset:', uploadPreset);
+
+    if (!apiKey) {
+      console.error('❌ ERRO: CLOUDINARY_API_KEY não configurada!');
+      console.error('   Adicione no .env: CLOUDINARY_API_KEY=sua_chave_aqui');
+      throw new Error('Cloudinary não configurado');
+    }
+
+    // 2. Preparar FormData
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(fileBuffer)], { type: 'image/jpeg' });
+
+    // Gerar um public_id único
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 10);
+    const extension = originalFilename.split('.').pop() || 'jpg';
+    const id = `produto_${produtoId}_${timestamp}_${randomStr}`;
+    const uploadFilename = `${id}.${extension}`;
+
+    console.log('📁 Informações do arquivo:');
+    console.log('   Public ID:', id);
+    console.log('   Nome do upload:', uploadFilename);
+
+    formData.append('file', blob, uploadFilename);
+    formData.append('upload_preset', uploadPreset);
+    formData.append('folder', 'produtos');
+    formData.append('public_id', id);
+
+    // 3. Fazer upload
+    console.log('📤 Enviando para Cloudinary...');
+    console.log('   URL:', `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`);
+
+    const startTime = Date.now();
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
       {
-        folder: 'sufficius/produtos',
-        public_id: `${produtoId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        resource_type: 'auto',
-        transformation: [
-          { width: 1200, height: 1200, crop: 'limit' },
-          { quality: 'auto:good' }
-        ]
-      },
-      (error, result) => {
-        if (error) {
-          reject(error);
-        } else if (result) {
-          resolve({
-            public_id: result.public_id,
-            secure_url: result.secure_url
-          });
-        } else {
-          reject(new Error('Upload sem resultado'));
-        }
+        method: 'POST',
+        body: formData,
+      }
+    );
+    const endTime = Date.now();
+
+    console.log('⏱️  Tempo de upload:', (endTime - startTime), 'ms');
+    console.log('📥 Resposta do Cloudinary:');
+    console.log('   Status:', response.status, response.statusText);
+    console.log('   OK?', response.ok);
+
+    // 4. Processar resposta
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ ERRO DO CLOUDINARY:');
+      console.error('   Status:', response.status);
+      console.error('   Resposta:', errorText);
+
+      try {
+        const errorJson = JSON.parse(errorText);
+        console.error('   Erro detalhado:', JSON.stringify(errorJson, null, 2));
+      } catch (e) {
+        console.error('   Erro (texto):', errorText);
+      }
+
+      throw new Error(`Cloudinary upload failed: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json() as any;
+
+
+    return {
+      id: result.public_id,
+      secureUrl: result.secure_url,
+      format: result.format,
+      bytes: result.bytes,
+      width: result.width,
+      height: result.height
+    };
+
+  } catch (error: any) {
+    console.error('='.repeat(50));
+    console.error('❌ ERRO CRÍTICO NO UPLOAD DO CLOUDINARY');
+    console.error('='.repeat(50));
+    console.error('Mensagem:', error.message);
+    console.error('Stack:', error.stack);
+    console.error('='.repeat(50));
+    throw error;
+  }
+}
+
+// Função para salvar arquivo temporariamente e enviar para Cloudinary
+async function saveAndUploadToCloudinary(file: any, produtoId: string): Promise<SavedFile> {
+  try {
+    console.log('💾 Processando imagem para Cloudinary...');
+
+    // Gerar nome único para o arquivo temporário
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 15);
+    const originalName = file.filename || 'imagem';
+    const extension = path.extname(originalName) || '.jpg';
+    const tempFilename = `${produtoId}-${timestamp}-${randomStr}${extension}`;
+    const tempFilepath = path.join(TEMP_UPLOAD_DIR, tempFilename);
+
+    console.log(`📁 Nome do arquivo temporário: ${tempFilename}`);
+    console.log(`📁 Caminho temporário: ${tempFilepath}`);
+
+    // Salvar arquivo temporariamente
+    const writeStream = fs.createWriteStream(tempFilepath);
+    await pipeline(file.file, writeStream);
+
+    // Ler o arquivo salvo
+    const fileBuffer = fs.readFileSync(tempFilepath);
+    const stats = fs.statSync(tempFilepath);
+
+    console.log(`📊 Arquivo salvo temporariamente: ${tempFilename} (${stats.size} bytes)`);
+
+    // Fazer upload para Cloudinary
+    const cloudinaryResult = await uploadToCloudinary(fileBuffer, produtoId, originalName);
+
+    // Limpar arquivo temporário
+    try {
+      fs.unlinkSync(tempFilepath);
+      console.log('🗑️  Arquivo temporário removido');
+    } catch (cleanupError) {
+      console.warn('⚠️  Não foi possível remover arquivo temporário:', cleanupError);
+    }
+
+    return {
+      filename: originalName,
+      filepath: tempFilepath,
+      mimetype: file.mimetype || 'image/jpeg',
+      size: cloudinaryResult.bytes,
+      id: cloudinaryResult.id,
+      cloudinaryUrl: cloudinaryResult.secureUrl
+    };
+
+  } catch (error: any) {
+    console.error('❌ Erro ao processar imagem:', error.message);
+    throw error;
+  }
+}
+
+function buildImageUrlFromFoto(foto?:string | null): string | null {
+ 
+
+  console.log('🖼️ Construindo URL a partir do campo foto:', foto);
+  if (!foto) {
+    return FALLBACK_PRODUCT_IMAGE;
+  }
+   if (foto.startsWith('http')) {
+    return foto;
+  }
+
+  if (foto.includes('produto_')) {
+    return getProductImageUrl(foto, {
+      width: 600,
+      height: 600,
+      quality: 'auto:good',
+      crop: 'fill'
+    });
+  }
+
+   return FALLBACK_PRODUCT_IMAGE;
+}
+
+function buildImageUrl(id?: string, cloudinaryUrl?: string): string | null {
+  console.log('🖼️ Construindo URL com:', {
+    id,
+    cloudinaryUrl,
+    hasid: !!id,
+    hasCloudinaryUrl: !!cloudinaryUrl,
+    cloudinaryUrlContainsCloudinary: cloudinaryUrl?.includes('cloudinary.com')
+  });
+
+  // DEBUG: Mostrar valores exatos
+  if (id) {
+    console.log('🔍 id value:', `"${id}"`, 'length:', id.length);
+  }
+  if (cloudinaryUrl) {
+    console.log('🔍 cloudinaryUrl value:', `"${cloudinaryUrl}"`, 'length:', cloudinaryUrl.length);
+  }
+
+  // Prioridade 1: Se já tiver uma URL completa do Cloudinary, use-a
+  if (cloudinaryUrl && cloudinaryUrl.includes('cloudinary.com')) {
+    console.log('✅ Usando URL completa do Cloudinary:', cloudinaryUrl);
+
+    // VERIFICAÇÃO EXTRA: A URL já está completa?
+    if (cloudinaryUrl.startsWith('http')) {
+      return cloudinaryUrl; // Já é URL completa
+    } else {
+      // Se não começa com http, adicionar o domínio
+      const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'sufficius-commerce';
+      return `https://res.cloudinary.com/${cloudName}/image/upload/${cloudinaryUrl}`;
+    }
+  }
+
+  // Prioridade 2: Se tiver id, gerar URL otimizada
+  if (id && id.trim() !== "") {
+    console.log('🔧 Gerando URL do Cloudinary para id:', id);
+
+    // Verificar se o id já é uma URL
+    if (id.includes('cloudinary.com')) {
+      console.warn('⚠️  id parece ser uma URL, não um id:', id);
+      return id; // Retornar como está
+    }
+
+    const generatedUrl = getProductImageUrl(id, {
+      width: 600,
+      height: 600,
+      quality: 'auto:good',
+      crop: 'fill'
+    });
+
+    console.log('✅ URL gerada do Cloudinary:', generatedUrl);
+    return generatedUrl;
+  }
+
+  // Prioridade 3: Fallback
+  console.log('⚠️  Sem id ou URL válida, usando fallback');
+  return FALLBACK_PRODUCT_IMAGE;
+}
+
+
+// Função para deletar imagem do Cloudinary
+async function deleteFromCloudinary(id: string): Promise<void> {
+  try {
+    if (!id || id.startsWith('simulated_')) {
+      return; // Não tentar deletar ids simulados
+    }
+
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'sufficius-commerce';
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+    if (!apiKey || !apiSecret) {
+      console.warn('⚠️  Credenciais do Cloudinary não configuradas. Não foi possível deletar imagem.');
+      return;
+    }
+
+     // Implementar deleção usando fetch API
+    const timestamp = Math.round(Date.now() / 1000);
+    const signature = require('crypto')
+      .createHash('sha1')
+      .update(`public_id=${id}&timestamp=${timestamp}${apiSecret}`)
+      .digest('hex');
+
+
+      const formData = new FormData();
+    formData.append('public_id', id);
+    formData.append('timestamp', timestamp.toString());
+    formData.append('api_key', apiKey);
+    formData.append('signature', signature);
+
+     const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`,
+      {
+        method: 'POST',
+        body: formData,
       }
     );
 
-    file.file.pipe(uploadStream);
-  });
+    if (!response.ok) {
+      console.warn(`⚠️  Falha ao deletar imagem ${id} do Cloudinary`);
+    } else {
+      console.log(`✅ Imagem ${id} deletada do Cloudinary`);
+    }
+
+    // Você precisaria implementar a deleção usando a API do Cloudinary
+    // Esta é uma implementação básica
+    console.log(`🗑️  Marcando imagem para deleção do Cloudinary: ${id}`);
+    // Nota: Para deletar realmente, você precisa usar a SDK do Cloudinary
+    // ou fazer uma requisição DELETE para a API
+
+  } catch (error: any) {
+    console.error(`⚠️  Erro ao marcar imagem para deleção do Cloudinary:`, error.message);
+  }
 }
 
-
-function buildCloudinaryUrl(publicId: string, options: any = {}): string {
-  const defaultOptions = {
-    width: 600,
-    height: 600,
-    crop: 'fill',
-    quality: 'auto:good'
-  };
-
-   const transformOptions = { ...defaultOptions, ...options };
-  const transformations = Object.entries(transformOptions)
-    .map(([key, value]) => `${key}_${value}`)
-    .join(',');
-
-  return `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${transformations}/${publicId}`;
-}
-
-
-
-
-// Configurar upload de arquivos
-const uploadDir = path.join(process.cwd(), 'uploads');
-
-// Criar diretório se não existir
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Função auxiliar para salvar arquivo
-async function saveFile(file: any, produtoId: string) {
-  const filename = `${produtoId}-${randomUUID()}${path.extname(file.filename)}`;
-  const filepath = path.join(uploadDir, filename);
-
-  await pipeline(file.file, fs.createWriteStream(filepath));
-
-  return {
-    filename,
-    filepath,
-    url: `/uploads/${filename}`
-  };
-}
-
-// Função auxiliar para deletar arquivos físicos
-// async function deleteProductFiles(produtoId: string) {
-//   try {
-//     // Buscar todas as imagens do produto
-//     const imagens = await prisma.imagemproduto.findMany({
-//       where: { produtoId }
-//     });
-
-//     // Deletar arquivos físicos
-//     for (const imagem of imagens) {
-//       const filepath = path.join(uploadDir, path.basename(imagem.url));
-//       if (fs.existsSync(filepath)) {
-//         fs.unlinkSync(filepath);
-//         console.log(`🗑️  Arquivo deletado: ${filepath}`);
-//       }
-//     }
-
-//     return imagens.length;
-//   } catch (error) {
-//     console.error('⚠️  Erro ao deletar arquivos físicos:', error);
-//     return 0;
-//   }
-// }
-
-async function deleteProductFiles(produtoId: string) {
+// Função para deletar arquivos temporários
+async function deleteTempFiles(produtoId: string): Promise<number> {
   try {
-    // Buscar todas as imagens do produto
-    const imagens = await prisma.imagemproduto.findMany({
-      where: { produtoId }
-    });
+    const files = fs.readdirSync(TEMP_UPLOAD_DIR);
+    const produtoFiles = files.filter(file => file.includes(produtoId));
 
-    // Deletar do Cloudinary
-    for (const imagem of imagens) {
+    let deletedCount = 0;
+
+    for (const file of produtoFiles) {
       try {
-        await cloudinary.uploader.destroy(imagem.publicId);
-        console.log(`🗑️  Imagem deletada do Cloudinary: ${imagem.publicId}`);
-      } catch (cloudinaryError) {
-        console.error('⚠️ Erro ao deletar do Cloudinary:', cloudinaryError);
+        const filepath = path.join(TEMP_UPLOAD_DIR, file);
+        if (fs.existsSync(filepath)) {
+          fs.unlinkSync(filepath);
+          deletedCount++;
+          console.log(`🗑️  Arquivo temporário deletado: ${file}`);
+        }
+      } catch (error) {
+        console.error(`⚠️ Erro ao deletar arquivo temporário ${file}:`, error);
       }
     }
 
-    return imagens.length;
+    return deletedCount;
   } catch (error) {
-    console.error('⚠️ Erro ao deletar arquivos:', error);
+    console.error('⚠️ Erro ao deletar arquivos temporários:', error);
     return 0;
   }
 }
+
+// Função para validar dados do produto
+function validateProdutoData(data: ProdutoInput): {
+  isValid: boolean;
+  errors: string[];
+  validated: {
+    nome?: string;
+    preco?: number;
+    quantidade?: number;
+    descricao?: string;
+    id_categoria?: string;
+    status?: 'ACTIVO' | 'INACTIVO';
+  }
+} {
+  const errors: string[] = [];
+  const validated: any = {};
+
+  // Validar nome
+  if (!data.nome || String(data.nome).trim().length === 0) {
+    errors.push('Nome do produto é obrigatório');
+  } else {
+    validated.nome = String(data.nome).trim();
+  }
+
+  // Validar preço
+  if (data.preco === undefined || data.preco === '') {
+    errors.push('Preço do produto é obrigatório');
+  } else {
+    const preco = parseFloat(String(data.preco));
+    if (isNaN(preco) || preco < 0) {
+      errors.push('Preço inválido');
+    } else {
+      validated.preco = preco;
+    }
+  }
+
+  // Validar quantidade
+  if (data.quantidade === undefined || data.quantidade === '') {
+    errors.push('Quantidade do produto é obrigatória');
+  } else {
+    const quantidade = parseInt(String(data.quantidade));
+    if (isNaN(quantidade) || quantidade < 0) {
+      errors.push('Quantidade inválida');
+    } else {
+      validated.quantidade = quantidade;
+    }
+  }
+
+  // Validar categoria
+  if (!data.id_categoria || String(data.id_categoria).trim().length === 0) {
+    errors.push('Categoria do produto é obrigatória');
+  } else {
+    validated.id_categoria = String(data.id_categoria).trim();
+  }
+
+  // Descrição (opcional)
+  if (data.descricao) {
+    validated.descricao = String(data.descricao).trim();
+  }
+
+  // Status
+  validated.status = (data.status === 'ACTIVO' || data.status === 'INACTIVO')
+    ? data.status
+    : 'ACTIVO';
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    validated
+  };
+}
+
 export class ProdutosController {
+
+  async getProdutos(request: FastifyRequest, reply: FastifyReply){
+    try{
+        
+    const produto = await prisma.produto.findMany({
+      select: {
+        id:true,
+        nome:true,
+        preco:true,
+        quantidade:true,
+        status:true,
+        atualizadoEm:true,
+        criadoEm:true,
+          Categoria: {
+            select:{
+              id:true,
+              nome:true
+            }
+          },
+          foto:true,
+          },
+          orderBy: {criadoEm: 'desc'},
+        });
+
+      console.log("🍀Todos os Produtos: ",produto);
+
+       reply.send({
+        success: true,
+        data: produto,
+        total: produto.length
+      });
+    }  catch (error) {
+      console.error('❌ Erro ao listar produtos:', error);
+      reply.status(500).send({
+        success: false,
+        message: 'Erro ao listar produtos'
+      });
+    }
+  }
+
+  // Listar produtos com filtros
   async listarProdutos(
-    request: FastifyRequest<{
-      Querystring: {
-        page?: string;
-        limit?: string;
-        busca?: string;
-        categoria?: string;
-        status?: string;
-        ordenar?: string;
-      }
-    }>,
+    request: FastifyRequest<{ Querystring: PaginationQuery }>,
     reply: FastifyReply
   ) {
     try {
-      const {
-        page = '1',
-        limit = '10',
-        busca = '',
+      const { page = '1', limit = '10', busca = '',
         categoria = '',
         status = '',
         ordenar = 'criadoEm_desc'
@@ -172,111 +522,85 @@ export class ProdutosController {
       if (busca) {
         where.OR = [
           { nome: { contains: busca, mode: 'insensitive' } },
-          { descricao: { contains: busca, mode: 'insensitive' } },
-          { sku: { contains: busca, mode: 'insensitive' } }
+          { descricao: { contains: busca, mode: 'insensitive' } }
         ];
       }
 
       if (categoria) {
-        where.categoria = {
-          some: {
-            id: categoria
-          }
-        };
+        where.id_categoria = categoria;
       }
 
       if (status) {
-        if (status === 'ativo') where.ativo = true;
-        if (status === 'inativo') where.ativo = false;
-        if (status === 'baixo_estoque') where.estoque = { lte: 10, gt: 0 };
-        if (status === 'sem_estoque') where.estoque = 0;
+        if (status === 'ATIVO') where.status = 'ATIVO';
+        else if (status === 'INATIVO') where.status = 'INATIVO';
+        else if (status === 'baixo_estoque') where.quantidade = { lte: 10, gt: 0 };
+        else if (status === 'sem_estoque') where.quantidade = 0;
       }
 
       // Construir ordenação
-      let orderBy: any = {};
-      if (ordenar === 'nome_asc') orderBy = { nome: 'asc' };
-      else if (ordenar === 'nome_desc') orderBy = { nome: 'desc' };
-      else if (ordenar === 'preco_asc') orderBy = { preco: 'asc' };
-      else if (ordenar === 'preco_desc') orderBy = { preco: 'desc' };
-      else if (ordenar === 'criadoEm_asc') orderBy = { criadoEm: 'asc' };
-      else orderBy = { criadoEm: 'desc' };
+      const orderMap: Record<string, any> = {
+        'nome_asc': { nome: 'asc' },
+        'nome_desc': { nome: 'desc' },
+        'preco_asc': { preco: 'asc' },
+        'preco_desc': { preco: 'desc' },
+        'criadoEm_asc': { criadoEm: 'asc' },
+        'criadoEm_desc': { criadoEm: 'desc' }
+      };
 
-      // Buscar produtos com contagem total
+      const orderBy = orderMap[ordenar] || { criadoEm: 'desc' };
+
       const [produtos, total] = await Promise.all([
         prisma.produto.findMany({
-          where,
-          include: {
-            categoria: {
+          where:where,
+          select: {
+            id:true,
+            nome:true,
+            preco:true,
+            quantidade:true,
+            status:true,
+            atualizadoEm:true,
+            criadoEm:true,
+            Categoria: {
               select: {
                 id: true,
-                nome: true,
-                slug: true
+                nome: true
               }
             },
-            imagemproduto: {
-              where: { principal: true },
-              take: 1
+            ImagemProduto:{
+              select:{
+                id:true,
+                url:true,
+                produto:true,
+                principal:true,
+                produtoId:true
+              }
             }
           },
-          orderBy,
           skip,
-          take: limite
+          take: limite,
+          orderBy: {criadoEm: 'desc'},
         }),
-        prisma.produto.count({ where })
+        prisma.produto.count({ where: where })
       ]);
-
-         // Formatar resposta com URLs construídas dinamicamente
-      const produtosFormatados = produtos.map(produto => {
-        const imagemPrincipal = produto.imagemproduto[0];
-        
-        return {
-          id: produto.id,
-          nome: produto.nome,
-          descricao: produto.descricao || '',
-          preco: produto.preco,
-          precoDesconto: produto.precoDesconto,
-          percentualDesconto: produto.percentualDesconto,
-          descontoAte: produto.descontoAte?.toISOString() || null,
-          estoque: produto.estoque,
-          sku: produto.sku,
-          ativo: produto.ativo,
-          emDestaque: produto.emDestaque,
-          criadoEm: produto.criadoEm.toISOString(),
-          categoria: produto.categoria[0]?.nome || 'Sem categoria',
-          categoriaId: produto.categoria[0]?.id || null,
-          // URL construída dinamicamente
-          imagem: imagemPrincipal 
-            ? buildCloudinaryUrl(imagemPrincipal.id, { width: 400, height: 400 })
-            : null,
-          imagemAlt: imagemPrincipal?.textoAlt || produto.nome,
-          status: this.determinarStatus(produto.ativo, produto.estoque)
-        };
-      });
-
-      // Buscar estatísticas básicas
-      const totalProdutos = await prisma.produto.count();
-      const totalAtivos = await prisma.produto.count({ where: { ativo: true } });
-      const totalEmPromocao = await prisma.produto.count({ where: { precoDesconto: { not: null } } });
-      const baixoEstoque = await prisma.produto.count({ where: { estoque: { lte: 10, gt: 0 } } });
-      const totalCategorias = await prisma.categoria.count();
-
 
       reply.send({
         success: true,
-        data: {
-          produtos: produtosFormatados,
+        data: produtos.map(p => ({
+          id:p.id,
+          nome: p.nome,
+          preco:p.preco,
+          quantidade: p.quantidade,
+          status: p.status,
+          atualizadoEm:p.atualizadoEm.toISOString(),
+          criadoEm:p.criadoEm.toISOString(),
+          Categoria: p.Categoria,
+          ImagemProduto: p.ImagemProduto,
+        })),
           paginacao: {
-            total,
             page: pagina,
             limit: limite,
+            total,
             totalPages: Math.ceil(total / limite)
-          },
-          estatisticas: {
-            totalProdutos,
-            totalAtivos,
-            totalEmPromocao,
-            baixoEstoque,
-            totalCategorias
           },
           filtros: {
             busca,
@@ -284,10 +608,9 @@ export class ProdutosController {
             status,
             ordenar
           }
-        }
-      });
+        });
     } catch (error) {
-      console.error('Erro ao listar produtos:', error);
+      console.error('❌ Erro ao listar produtos:', error);
       reply.status(500).send({
         success: false,
         message: 'Erro ao listar produtos'
@@ -295,6 +618,7 @@ export class ProdutosController {
     }
   }
 
+  // Buscar produto por ID
   async buscarProdutoPorId(
     request: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply
@@ -305,10 +629,11 @@ export class ProdutosController {
       const produto = await prisma.produto.findUnique({
         where: { id },
         include: {
-          categoria: true,
-          imagemproduto: true,
+          Categoria: true,
+          ImagemProduto: true,
         }
       });
+
 
       if (!produto) {
         return reply.status(404).send({
@@ -317,9 +642,16 @@ export class ProdutosController {
         });
       }
 
+      // Construir URLs do Cloudinary para as imagens
+      const produtoComImagens = {
+        ...produto,
+        imagemproduto:buildImageUrlFromFoto(produto.foto),
+        cloudinaryId: produto.foto
+      };
+
       reply.send({
         success: true,
-        data: produto
+        data: produtoComImagens
       });
     } catch (error) {
       console.error('Erro ao buscar produto:', error);
@@ -330,510 +662,496 @@ export class ProdutosController {
     }
   }
 
- async criarProduto(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
-  try {
-    console.log('📦 === INÍCIO: Recebendo requisição para criar produto ===');
 
-    const contentType = request.headers['content-type'] || '';
-    const isMultipart = contentType.includes('multipart/form-data');
-    
-    interface DadosProduto {
-      nome?: string;
-      sku?: string;
-      preco?: string | number;
-      estoque?: string | number;
-      descricao?: string;
-      precoDesconto?: string | number;
-      percentualDesconto?: string | number;
-      categoriaId?: string;
-      ativo?: boolean | string;
-      emDestaque?: boolean | string;
-      descontoAte?: string;
-    }
+  // Criar produto
+  async criarProduto(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      console.log('📦 Criando novo produto...');
 
-    let dados: DadosProduto = {};
-    let imagemFile: any = null;
-
-    if (isMultipart && request.isMultipart()) {
-      console.log('🔄 Processando multipart...');
-      
+      // 1. PRIMEIRO verificar autenticação MANUALMENTE
       try {
-        const parts = request.parts();
-        
-        for await (const part of parts) {
-          if (part.type === 'file') {
-            imagemFile = part;
-            console.log(`📁 Arquivo: ${part.filename || 'sem nome'}`);
-          } else {
-            if ('value' in part) {
-              const valor = String(part.value);
-              
-              switch (part.fieldname) {
-                case 'ativo':
-                case 'emDestaque':
-                  dados[part.fieldname] = valor === 'true' || valor === '1' || valor === 'on';
-                  break;
-                  
-                case 'preco':
-                case 'precoDesconto':
-                case 'percentualDesconto':
-                case 'estoque':
-                  dados[part.fieldname] = valor.trim();
-                  break;
-                  
-                default:
-                  dados[part.fieldname as keyof DadosProduto] = valor;
-                  break;
-              }
-            }
-          }
+        await request.jwtVerify();
+        const user = request.user as any;
+
+        if (user.tipo !== 'ADMIN') {
+          return reply.status(403).send({
+            success: false,
+            message: 'Acesso negado. Apenas administradores podem criar produtos.'
+          });
         }
-        
-      } catch (multipartError: any) {
-        console.error('❌ ERRO no multipart:', multipartError.message);
-        
-        // Fallback para JSON
-        try {
-          const body = request.body as DadosProduto;
-          if (body) {
-            dados = body;
-          }
-        } catch (jsonError) {
-          console.error('❌ Fallback JSON falhou:', jsonError);
-        }
-      }
-    }
-
-    // Validação
-    const nome = dados.nome ? String(dados.nome).trim() : '';
-    const sku = dados.sku ? String(dados.sku).trim() : '';
-    const preco = dados.preco ? String(dados.preco) : '';
-    const estoque = dados.estoque !== undefined ? String(dados.estoque) : '';
-    
-    if (!nome || !sku || !preco || estoque === '') {
-      return reply.status(400).send({
-        success: false,
-        message: 'Campos obrigatórios faltando: nome, sku, preco, estoque'
-      });
-    }
-
-    // Verificar se SKU já existe
-    const skuExistente = await prisma.produto.findUnique({
-      where: { sku: sku }
-    });
-
-    if (skuExistente) {
-      return reply.status(400).send({
-        success: false,
-        message: 'SKU já está em uso'
-      });
-    }
-
-    const produtoId = `prod_${Date.now()}_${randomUUID().substring(0, 8)}`;
-
-    // Calcular percentual de desconto se não fornecido
-    let percentualDesconto = dados.percentualDesconto ? 
-      parseFloat(String(dados.percentualDesconto)) : undefined;
-    
-    if (dados.precoDesconto && !percentualDesconto) {
-      const precoNum = parseFloat(preco);
-      const precoDescontoNum = parseFloat(String(dados.precoDesconto));
-      percentualDesconto = ((precoNum - precoDescontoNum) / precoNum) * 100;
-    }
-
-    // Criar produto
-    const produto = await prisma.produto.create({
-      data: {
-        id: produtoId,
-        nome: nome,
-        descricao: dados.descricao ? String(dados.descricao) : null,
-        preco: parseFloat(preco),
-        precoDesconto: dados.precoDesconto ? 
-          parseFloat(String(dados.precoDesconto)) : null,
-        percentualDesconto: percentualDesconto ? 
-          parseFloat(percentualDesconto.toFixed(2)) : null,
-        estoque: parseInt(estoque),
-        sku: sku,
-        ativo: dados.ativo !== undefined ? 
-          (typeof dados.ativo === 'boolean' ? dados.ativo : dados.ativo === 'true') : true,
-        emDestaque: dados.emDestaque !== undefined ? 
-          (typeof dados.emDestaque === 'boolean' ? dados.emDestaque : dados.emDestaque === 'true') : false,
-        ...(dados.categoriaId && {
-          categoria: {
-            connect: [{ id: String(dados.categoriaId) }]
-          }
-        })
-      }
-    });
-
-    // Lidar com upload de imagem para Cloudinary
-    if (imagemFile) {
-      try {
-        console.log('☁️ Fazendo upload para Cloudinary...');
-        const cloudinaryResult = await uploadToCloudinary(imagemFile, produto.id);
-
-        console.log('✅ Upload Cloudinary concluído:', cloudinaryResult.public_id);
-
-        // Salvar no banco
-        await prisma.imagemproduto.create({
-          data: {
-            id: cloudinaryResult.public_id, // Usar public_id como ID
-            produtoId: produto.id,
-            publicId: cloudinaryResult.public_id,
-            textoAlt: nome,
-            url: cloudinaryResult.secure_url,
-            principal: true
-          }
+      } catch (err) {
+        return reply.status(401).send({
+          success: false,
+          message: 'Não autorizado. Token inválido ou expirado.'
         });
-
-      } catch (imageError: any) {
-        console.error('⚠️ Erro ao salvar imagem no Cloudinary:', imageError.message);
-        // Não falhar o produto se a imagem falhar
       }
-    }
 
-    // Buscar produto criado com relações
-    const produtoCriado = await prisma.produto.findUnique({
-      where: { id: produto.id },
-      include: {
-        categoria: true,
-        imagemproduto: true
-      }
-    });
+      // 2. AGORA processar o multipart
+      const contentType = request.headers['content-type'] || '';
 
-    // Construir URL da imagem
-    let imagemUrl = null;
-    if (produtoCriado?.imagemproduto[0]) {
-      imagemUrl = buildCloudinaryUrl(produtoCriado.imagemproduto[0].publicId, {
-        width: 600,
-        height: 600,
-        crop: 'fill'
-      });
-    }
-
-    const response = {
-      id: produtoCriado?.id,
-      nome: produtoCriado?.nome,
-      descricao: produtoCriado?.descricao,
-      preco: produtoCriado?.preco,
-      precoDesconto: produtoCriado?.precoDesconto,
-      estoque: produtoCriado?.estoque,
-      sku: produtoCriado?.sku,
-      ativo: produtoCriado?.ativo,
-      emDestaque: produtoCriado?.emDestaque,
-      categoria: produtoCriado?.categoria[0]?.nome || null,
-      imagem: imagemUrl
-    };
-
-    console.log('✅ Produto criado com sucesso:', produto.id);
-
-    reply.status(201).send({
-      success: true,
-      message: 'Produto criado com sucesso',
-      data: response
-    });
-
-  } catch (error: any) {
-    console.error('❌ Erro ao criar produto:', error);
-    
-    if (error.code === 'P2002') {
-      return reply.status(400).send({
-        success: false,
-        message: 'SKU já está em uso'
-      });
-    }
-
-    reply.status(500).send({
-      success: false,
-      message: 'Erro interno ao criar produto'
-    });
-  }
-}
-
- async atualizarProduto(
-  request: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
-) {
-  try {
-    console.log('🔄 Recebendo requisição para atualizar produto...');
-    const { id } = request.params;
-
-    // Verificar se produto existe
-    const produtoExistente = await prisma.produto.findUnique({
-      where: { id },
-      include: {
-        categoria: true,
-        imagemproduto: true
-      }
-    });
-
-    if (!produtoExistente) {
-      return reply.status(404).send({
-        success: false,
-        message: 'Produto não encontrado'
-      });
-    }
-
-    const contentType = request.headers['content-type'] || '';
-    const isMultipart = contentType.includes('multipart/form-data');
-
-    let dados: any = {};
-    let imagemFile: any = null;
-    let deletarImagem = false;
-
-    if (isMultipart && request.isMultipart()) {
-      console.log('🔄 Processando dados multipart...');
-      const parts = request.parts();
-      for await (const part of parts) {
-        if (part.type === 'file') {
-          imagemFile = part;
-          console.log('📁 Arquivo recebido:', part.filename);
-        } else {
-          // Converter valores
-          if (part.fieldname === 'ativo' || part.fieldname === 'emDestaque') {
-            dados[part.fieldname] = part.value === 'true' || part.value === '1';
-          } else if (part.fieldname === 'deletarImagem') {
-            deletarImagem = part.value === 'true';
-            console.log('🗑️  Deletar imagem:', deletarImagem);
-          } else {
-            dados[part.fieldname] = part.value;
-          }
-        }
-      }
-    } else {
-      dados = request.body as any;
-    }
-
-    // Verificar se novo SKU já existe
-    if (dados.sku && dados.sku !== produtoExistente.sku) {
-      const skuExistente = await prisma.produto.findUnique({
-        where: { sku: dados.sku }
-      });
-
-      if (skuExistente) {
+      if (!contentType.includes('multipart/form-data')) {
         return reply.status(400).send({
           success: false,
-          message: 'SKU já está em uso'
+          message: 'Content-Type deve ser multipart/form-data'
         });
       }
-    }
 
-    // Preparar dados para atualização
-    const updateData: any = {
-      nome: dados.nome || produtoExistente.nome,
-      descricao: dados.descricao !== undefined ? dados.descricao : produtoExistente.descricao,
-      preco: dados.preco !== undefined ? parseFloat(dados.preco) : produtoExistente.preco,
-      estoque: dados.estoque !== undefined ? parseInt(dados.estoque) : produtoExistente.estoque,
-      sku: dados.sku || produtoExistente.sku,
-      ativo: dados.ativo !== undefined ? dados.ativo : produtoExistente.ativo,
-      emDestaque: dados.emDestaque !== undefined ? dados.emDestaque : produtoExistente.emDestaque,
-      atualizadoEm: new Date()
-    };
-
-    // Atualizar produto
-    const produtoAtualizado = await prisma.produto.update({
-      where: { id },
-      data: updateData
-    });
-
-    // Atualizar relação com categoria
-    if (dados.categoriaId !== undefined) {
-      if (dados.categoriaId) {
-        await prisma.produto.update({
-          where: { id },
-          data: {
-            categoria: {
-              set: [{ id: dados.categoriaId }]
-            }
-          }
-        });
-      } else {
-        await prisma.produto.update({
-          where: { id },
-          data: {
-            categoria: {
-              set: []
-            }
-          }
+      if (!request.isMultipart()) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Requisição deve ser multipart'
         });
       }
-    }
 
-    // Gerenciar imagens com Cloudinary
-    if (deletarImagem) {
-      // Deletar imagens do Cloudinary e do banco de dados
-      const imagens = await prisma.imagemproduto.findMany({
-        where: { produtoId: id }
-      });
+      let dados: ProdutoInput = {};
+      let imagemFile: any = null;
 
-      for (const imagem of imagens) {
-        try {
-          await cloudinary.uploader.destroy(imagem.publicId);
-          console.log(`🗑️  Imagem deletada do Cloudinary: ${imagem.publicId}`);
-        } catch (cloudinaryError) {
-          console.error('⚠️ Erro ao deletar do Cloudinary:', cloudinaryError);
-        }
-      }
+      console.log('🔄 Processando dados multipart...');
 
-      await prisma.imagemproduto.deleteMany({
-        where: { produtoId: id }
-      });
-
-      console.log('🗑️  Imagens deletadas');
-    }
-
-    if (imagemFile) {
+      // 3. IMPORTANTE: Usar try-catch específico para multipart
       try {
-        console.log('☁️ Fazendo upload de nova imagem para Cloudinary...');
-        
-        // Primeiro, deletar imagem atual se existir
-        const imagensAtuais = await prisma.imagemproduto.findMany({
-          where: { produtoId: id }
-        });
+        const parts = request.parts();
 
-        for (const imagem of imagensAtuais) {
-          try {
-            await cloudinary.uploader.destroy(imagem.publicId);
-          } catch (error) {
-            console.error('⚠️ Erro ao deletar imagem anterior:', error);
+        for await (const part of parts) {
+          console.log(`📄 Processando parte: ${part.fieldname}`);
+
+          if (part.type === 'file') {
+            imagemFile = part;
+            console.log(`📁 Arquivo recebido: ${part.filename} (${part.mimetype})`);
+
+            // CONSUMIR o stream
+            for await (const chunk of part.file) {
+              // Apenas consumir para processar
+            }
+          } else if ('value' in part) {
+            const fieldname = part.fieldname as keyof ProdutoInput;
+            const value = String(part.value);
+            console.log(`📝 Campo ${fieldname}: ${value}`);
+            dados[fieldname] = value;
           }
         }
-
-        // Deletar registros do banco
-        await prisma.imagemproduto.deleteMany({
-          where: { produtoId: id }
+      } catch (multipartError: any) {
+        console.error('❌ Erro ao processar multipart:', multipartError);
+        return reply.status(400).send({
+          success: false,
+          message: 'Erro ao processar dados do formulário',
+          error: process.env.NODE_ENV === 'development' ? multipartError.message : undefined
         });
+      }
 
-        // Fazer upload da nova imagem
-        const cloudinaryResult = await uploadToCloudinary(imagemFile, id);
+      // Log dos dados recebidos
+      console.log('📊 Dados recebidos do formulário:', dados);
+      console.log('📁 Arquivo recebido:', imagemFile ? 'Sim' : 'Não');
 
-        // Salvar no banco
-        await prisma.imagemproduto.create({
-          data: {
-            id: cloudinaryResult.public_id,
-            produtoId: id,
-            publicId: cloudinaryResult.public_id,
-            textoAlt: dados.nome || produtoExistente.nome,
-            url: cloudinaryResult.secure_url,
-            principal: true
-          }
+      // 4. Validar dados
+      const validation = validateProdutoData(dados);
+      if (!validation.isValid) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Dados inválidos',
+          errors: validation.errors
         });
-
-        console.log('✅ Nova imagem salva no Cloudinary:', cloudinaryResult.public_id);
-      } catch (imageError: any) {
-        console.error('⚠️ Erro ao salvar nova imagem:', imageError.message);
       }
-    }
 
-    // Buscar produto atualizado
-    const produtoFinal = await prisma.produto.findUnique({
-      where: { id },
-      include: {
-        categoria: true,
-        imagemproduto: true
+      const { nome, preco, quantidade, descricao, id_categoria, status } = validation.validated;
+
+      // 5. Verificar se categoria existe
+      const categoriaExistente = await prisma.categoria.findUnique({
+        where: { id: id_categoria }
+      });
+
+      if (!categoriaExistente) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Categoria não encontrada'
+        });
       }
-    });
 
-    // Construir URLs das imagens
-    const produtoFormatado = {
-      ...produtoFinal,
-      imagemproduto: produtoFinal?.imagemproduto.map(img => ({
-        ...img,
-        url: buildCloudinaryUrl(img.publicId, { width: 600, height: 600, crop: 'fill' })
-      }))
-    };
+      // 6. Gerar IDs
+      const produtoId = randomUUID();
 
-    console.log('✅ Produto atualizado com sucesso:', id);
+      let fotoUrl:string | null = null;
+      let cloudinaryId:string | null = null;
 
-    reply.send({
-      success: true,
-      message: 'Produto atualizado com sucesso',
-      data: produtoFormatado
-    });
 
-  } catch (error: any) {
-    console.error('❌ Erro ao atualizar produto:', error);
-    
-    if (error.code === 'P2002') {
-      return reply.status(400).send({
+      console.log('💾 Criando produto no banco de dados...');
+
+
+      // 8. Lidar com upload de imagem para Cloudinary
+      if (imagemFile) {
+        try {
+          console.log('☁️  Processando imagem para Cloudinary...');
+          const savedFile = await saveAndUploadToCloudinary(imagemFile, produtoId);
+
+          cloudinaryId = savedFile.id || null;
+          fotoUrl = savedFile.cloudinaryUrl || null;
+
+          console.log('📝 Dados da imagem salva:', {
+            filename: savedFile.filename,
+            id: savedFile.id,
+            cloudinaryUrl: savedFile.cloudinaryUrl,
+            cloudinaryUrlStartsWithHttp: savedFile.cloudinaryUrl?.startsWith('http'),
+            cloudinaryUrlIncludesCloudinary: savedFile.cloudinaryUrl?.includes('cloudinary.com')
+          });
+
+          console.log('✅ Imagem salva no Cloudinary com sucesso');
+        } catch (imageError: any) {
+          console.error('⚠️ Erro ao salvar imagem no Cloudinary:', imageError.message);
+          // Não falhar o produto se a imagem falhar
+        }
+      }
+
+          // 7. Criar produto no banco
+      const produto = await prisma.produto.create({
+        data: {
+          id: produtoId,
+          nome: nome!,
+          descricao: descricao,
+          preco: preco!,
+          quantidade: quantidade!,
+          foto:cloudinaryId || fotoUrl || null,
+          status: "ATIVO",
+          id_categoria: id_categoria!,
+        }
+      });
+      console.log(`✅ Produto criado no banco: ${produto.id}`);
+
+      // 9. Buscar produto criado com relações
+      const produtoCriado = await prisma.produto.findUnique({
+        where: { id: produto.id },
+        include: {
+          Categoria: {
+            select: {
+              id: true,
+              nome: true
+            }
+          },
+          ImagemProduto: true
+        }
+      });
+
+      // 10. Construir resposta com URL do Cloudinary
+      const imagemPrincipal = produtoCriado?.ImagemProduto[0];
+
+      const response = {
+        id: produtoCriado?.id,
+        nome: produtoCriado?.nome,
+        descricao: produtoCriado?.descricao,
+        preco: produtoCriado?.preco,
+        quantidade: produtoCriado?.quantidade,
+        status: produtoCriado?.status,
+        foto: produtoCriado?.foto,
+        categoria: produtoCriado?.Categoria?.nome || null,
+        categoriaId: produtoCriado?.Categoria?.id || null,
+        fotoUrl: produtoCriado?.foto,
+        imagem: buildImageUrlFromFoto(produtoCriado?.foto),
+        publicId: imagemPrincipal?.id || null, // Incluir id
+        criadoEm: produtoCriado?.criadoEm?.toISOString()
+      };
+
+      console.log('🎉 Produto criado com sucesso!');
+
+      return reply.status(201).send({
+        success: true,
+        message: 'Produto criado com sucesso',
+        data: response
+      });
+
+    } catch (error: any) {
+      console.error('❌ ERRO CRÍTICO ao criar produto:', error);
+      console.error('Stack trace:', error.stack);
+
+      if (error.code === 'P2003') {
+        return reply.status(400).send({
+          success: false,
+          message: 'Categoria não existe'
+        });
+      }
+
+      // Erro genérico
+      return reply.status(500).send({
         success: false,
-        message: 'SKU já está em uso'
+        message: 'Erro interno ao criar produto',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Contate o administrador'
       });
     }
-
-    reply.status(500).send({
-      success: false,
-      message: 'Erro interno ao atualizar produto'
-    });
   }
-}
 
-  async deletarProduto(
+  // Atualizar produto
+  async atualizarProduto(
     request: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply
   ) {
     try {
-      console.log('🗑️  Recebendo requisição para deletar produto...');
       const { id } = request.params;
 
-      console.log(`🔍 Buscando produto ID: ${id}`);
-
       // Verificar se produto existe
-      const produto = await prisma.produto.findUnique({
+      const produtoExistente = await prisma.produto.findUnique({
         where: { id },
-        include: {
-          imagemproduto: true
-        }
       });
 
-      if (!produto) {
-        console.log(`❌ Produto ${id} não encontrado`);
+      if (!produtoExistente) {
         return reply.status(404).send({
           success: false,
           message: 'Produto não encontrado'
         });
       }
 
-      console.log(`✅ Produto encontrado: ${produto.nome}`);
+      const contentType = request.headers['content-type'] || '';
+      const isMultipart = contentType.includes('multipart/form-data');
 
-      // Verificar se produto tem vendas associadas (opcional, para segurança)
-      // Esta verificação depende da sua estrutura de dados
+      let dados: ProdutoInput = {};
+      let imagemFile: any = null;
+      let deletarImagem = false;
 
-      // Primeiro deletar imagens associadas
-      console.log('🔄 Deletando imagens do produto...');
+      // Processar dados
+      if (isMultipart && request.isMultipart()) {
+        const parts = request.parts();
+        for await (const part of parts) {
+          if (part.type === 'file') {
+            imagemFile = part;
+          } else if ('value' in part) {
+            const fieldname = part.fieldname as string;
+            const value = String(part.value).trim();
 
-      // Deletar arquivos físicos das imagens
-      const arquivosDeletados = await deleteProductFiles(id);
-      console.log(`🗑️  ${arquivosDeletados} arquivo(s) físico(s) deletado(s)`);
-
-      // Deletar registros de imagens no banco de dados
-      await prisma.imagemproduto.deleteMany({
-        where: { produtoId: id }
-      });
-      console.log('✅ Registros de imagens deletados do banco');
-
-      // Remover relações com categorias (se houver)
-      console.log('🔄 Removendo relações com categorias...');
-      await prisma.produto.update({
-        where: { id },
-        data: {
-          categoria: {
-            set: []
+            if (fieldname === 'emDestaque') {
+              dados[fieldname] = value === 'true' || value === '1';
+            } else if (fieldname === 'deletarImagem') {
+              deletarImagem = value === 'true';
+            } else if (fieldname === 'id_categoria') {
+              dados.id_categoria = value;
+            } else {
+              switch (fieldname) {
+                case 'nome':
+                case 'descricao':
+                case 'status':
+                  dados[fieldname] = value;
+                  break;
+                case 'preco':
+                case 'quantidade':
+                  dados[fieldname] = value;
+                  break;
+                default:
+                  break;
+              }
+            }
           }
         }
-      });
-      console.log('✅ Relações com categorias removidas');
+      } else {
+        dados = request.body as ProdutoInput;
+      }
 
-      // Deletar o produto
-      console.log('🔄 Deletando produto do banco de dados...');
+      // Preparar dados para atualização
+      const updateData: any = {
+        nome: dados.nome || produtoExistente.nome,
+        descricao: dados.descricao !== undefined ? dados.descricao : produtoExistente.descricao,
+        preco: dados.preco !== undefined ? parseFloat(String(dados.preco)) : produtoExistente.preco,
+        quantidade: dados.quantidade !== undefined ? parseInt(String(dados.quantidade)) : produtoExistente.quantidade,
+        status: dados.status || produtoExistente.status,
+        atualizadoEm: new Date()
+      };
+
+      // Atualizar categoria se fornecida
+      if (dados.id_categoria !== undefined) {
+        if (dados.id_categoria) {
+          const categoria = await prisma.categoria.findUnique({
+            where: { id: dados.id_categoria }
+          });
+
+          if (!categoria) {
+            return reply.status(400).send({
+              success: false,
+              message: 'Categoria não encontrada'
+            });
+          }
+
+          updateData.id_categoria = dados.id_categoria;
+        } else {
+          updateData.id_categoria = null;
+        }
+      }
+
+      // Atualizar produto
+      await prisma.produto.update({
+        where: { id },
+        data: updateData
+      });
+
+      // Gerenciar imagens do Cloudinary
+      if (deletarImagem && produtoExistente.foto) {
+        // Deletar do Cloudinary
+         await deleteFromCloudinary(produtoExistente.foto);
+         updateData.foto = null
+      }
+
+      if (imagemFile) {
+        try {
+
+           if (produtoExistente.foto) {
+            await deleteFromCloudinary(produtoExistente.foto);
+          }
+          // Deletar imagens atuais do Cloudinary
+          const imagensAtuais = await prisma.imagemProduto.findMany({
+            where: { produtoId: id }
+          });
+
+          for (const imagem of imagensAtuais) {
+            if (imagem.id) {
+              await deleteFromCloudinary(imagem.id);
+            }
+          }
+
+          // Deletar registros do banco
+          await prisma.imagemProduto.deleteMany({
+            where: { produtoId: id }
+          });
+
+          // Limpar arquivos temporários
+          await deleteTempFiles(id);
+
+          // Salvar nova imagem no Cloudinary
+          const savedFile = await saveAndUploadToCloudinary(imagemFile, id);
+          updateData.foto = savedFile.id || savedFile.cloudinaryUrl;
+
+          await prisma.imagemProduto.create({
+            data: {
+              id: randomUUID(),
+              produtoId: id,
+              url: savedFile.cloudinaryUrl || '',
+              principal: true,
+            }
+          });
+
+        } catch (imageError: any) {
+          console.error('⚠️ Erro ao salvar nova imagem:', imageError.message);
+        }
+      }
+
+      const produtoAtualizado = await prisma.produto.update({
+        where: { id },
+        data: updateData,
+        include: {
+          Categoria: true
+        }
+      });
+
+
+      // Buscar produto atualizado
+      const produtoFinal = await prisma.produto.findUnique({
+        where: { id },
+        include: {
+          Categoria: true,
+          ImagemProduto: true
+        }
+      });
+
+      // Construir URLs das imagens (Cloudinary)
+      const produtoFormatado = {
+        ...produtoAtualizado,
+        imagemUrl: buildImageUrlFromFoto(produtoAtualizado.foto)
+      };
+
+      reply.send({
+        success: true,
+        message: 'Produto atualizado com sucesso',
+        data: produtoFormatado
+      });
+
+    } catch (error: any) {
+      console.error('❌ Erro ao atualizar produto:', error);
+
+      if (error.code === 'P2003') {
+        return reply.status(400).send({
+          success: false,
+          message: 'Categoria não existe'
+        });
+      }
+
+      reply.status(500).send({
+        success: false,
+        message: 'Erro interno ao atualizar produto'
+      });
+    }
+  }
+
+  // Deletar produto
+  async deletarProduto(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) {
+    try {
+      const { id } = request.params;
+
+      // Verificar se produto existe
+      const produto = await prisma.produto.findUnique({
+        where: { id },
+        include: {
+          ImagemProduto: true
+        }
+      });
+
+      if (!produto) {
+        return reply.status(404).send({
+          success: false,
+          message: 'Produto não encontrado'
+        });
+      }
+
+      if (produto.foto) {
+        await deleteFromCloudinary(produto.foto);
+      }
+
+
+      // Deletar imagens do Cloudinary
+      const imagens = await prisma.imagemProduto.findMany({
+        where: { produtoId: id }
+      });
+
+      for (const imagem of imagens) {
+        if (imagem.id) {
+          await deleteFromCloudinary(imagem.id);
+        }
+      }
+
+      // Deletar arquivos temporários
+      const arquivosTempDeletados = await deleteTempFiles(id);
+
+      // Deletar registros de imagens no banco
+      await prisma.imagemProduto.deleteMany({
+        where: { produtoId: id }
+      });
+
+      // Verificar dependências
+      const [temItensCarrinho, temItensPedido, temAvaliacoes] = await Promise.all([
+        prisma.itemCarrinho.findFirst({ where: { produtoId: id } }),
+        prisma.itemPedido.findFirst({ where: { produtoId: id } }),
+        prisma.avaliacao.findFirst({ where: { produtoId: id } })
+      ]);
+
+      if (temItensCarrinho || temItensPedido || temAvaliacoes) {
+        // Marcar como INACTIVO
+        await prisma.produto.update({
+          where: { id },
+          data: {
+            status: 'INATIVO',
+            foto:null
+          }
+        });
+
+        return reply.send({
+          success: true,
+          message: 'Produto marcado como inativo (não pode ser deletado pois está em uso)',
+          data: {
+            produtoId: id,
+            nome: produto.nome,
+          }
+        });
+      }
+
+      // Deletar produto
       await prisma.produto.delete({
         where: { id }
       });
-
-      console.log(`✅ Produto ${id} deletado com sucesso`);
 
       reply.send({
         success: true,
@@ -841,26 +1159,16 @@ export class ProdutosController {
         data: {
           produtoId: id,
           nome: produto.nome,
-          arquivosDeletados
         }
       });
 
     } catch (error: any) {
       console.error('❌ Erro ao deletar produto:', error);
 
-      // Erros específicos do Prisma
       if (error.code === 'P2025') {
         return reply.status(404).send({
           success: false,
           message: 'Produto não encontrado'
-        });
-      }
-
-      // Verificar se é erro de chave estrangeira (produto em uso)
-      if (error.code === 'P2003') {
-        return reply.status(400).send({
-          success: false,
-          message: 'Não é possível deletar o produto pois ele está sendo utilizado em outras partes do sistema'
         });
       }
 
@@ -872,6 +1180,7 @@ export class ProdutosController {
     }
   }
 
+  // Estatísticas de produtos
   async getEstatisticasProdutos(request: FastifyRequest, reply: FastifyReply) {
     try {
       // Buscar todas as estatísticas em paralelo
@@ -882,41 +1191,63 @@ export class ProdutosController {
         totalEmPromocao,
         baixoEstoque,
         semEstoque,
-        totalCategorias
       ] = await Promise.all([
         prisma.produto.count(),
-        prisma.produto.count({ where: { ativo: true } }),
-        prisma.produto.count({ where: { ativo: false } }),
-        prisma.produto.count({ where: { precoDesconto: { not: null } } }),
-        prisma.produto.count({ where: { estoque: { lte: 10, gt: 0 } } }),
-        prisma.produto.count({ where: { estoque: 0 } }),
+        prisma.produto.count({ where: { status: 'ATIVO' } }),
+        prisma.produto.count({ where: { status: 'INATIVO' } }),
+        prisma.produto.count({ where: { quantidade: { lte: 10, gt: 0 } } }),
+        prisma.produto.count({ where: { quantidade: 0 } }),
         prisma.categoria.count()
       ]);
 
-      // Buscar produtos mais vendidos (se você tiver essa informação)
+      // Buscar produtos mais vendidos
       const produtosMaisVendidos = await prisma.produto.findMany({
-        where: { ativo: true },
-        orderBy: {
-          // Aqui você precisaria ordenar por um campo de vendas
-          // Por enquanto, usamos data de criação como placeholder
-          criadoEm: 'desc'
-        },
-        take: 5,
-        select: {
-          id: true,
-          nome: true,
-          preco: true,
-          estoque: true,
-          imagemproduto: {
+        where: { status: 'ATIVO' },
+        include: {
+          ImagemProduto: {
             where: { principal: true },
-            take: 1,
-            select: { url: true }
+            take: 1
+          },
+          ItemPedido: {
+            select: {
+              quantidade: true
+            }
           }
+        },
+        take: 5
+      });
+
+      // Calcular total vendido
+      const produtosComVendas = produtosMaisVendidos.map(produto => {
+        const totalVendido = produto.ItemPedido.reduce((sum, item) => sum + item.quantidade, 0);
+        return {
+          ...produto,
+          totalVendido
+        };
+      }).sort((a, b) => b.totalVendido - a.totalVendido);
+
+      // Calcular valor total em estoque
+      const produtosComEstoque = await prisma.produto.findMany({
+        where: { status: 'ATIVO' },
+        select: {
+          preco: true,
+          quantidade: true
         }
       });
 
-      // Calcular total vendido (placeholder - você precisa implementar conforme sua lógica de vendas)
-      const totalVendidos = 0;
+      const valorTotalEstoque = produtosComEstoque.reduce((total, produto) => {
+        return total + (produto.preco * produto.quantidade);
+      }, 0);
+
+      // Preparar resposta com URLs do Cloudinary
+      const produtosComImagens = produtosComVendas.map(produto => ({
+        id: produto.id,
+        nome: produto.nome,
+        preco: produto.preco,
+        quantidade: produto.quantidade,
+        totalVendido: produto.totalVendido,
+        imagem: buildImageUrlFromFoto(produto.foto)
+      }));
 
       reply.send({
         success: true,
@@ -927,15 +1258,8 @@ export class ProdutosController {
           totalEmPromocao,
           baixoEstoque,
           semEstoque,
-          totalVendidos,
-          produtosMaisVendidos: produtosMaisVendidos.map(produto => ({
-            id: produto.id,
-            nome: produto.nome,
-            preco: produto.preco,
-            estoque: produto.estoque,
-            imagem: produto.imagemproduto[0]?.url || null
-          })),
-          totalCategorias,
+          valorTotalEstoque,
+          produtosMaisVendidos: produtosComImagens,
           resumo: {
             produtosPorStatus: {
               ativos: totalAtivos,
@@ -958,13 +1282,12 @@ export class ProdutosController {
     }
   }
 
-  // Método para deletar múltiplos produtos (opcional)
+  // Deletar múltiplos produtos
   async deletarMultiplosProdutos(
     request: FastifyRequest<{ Body: { ids: string[] } }>,
     reply: FastifyReply
   ) {
     try {
-      console.log('🗑️  Recebendo requisição para deletar múltiplos produtos...');
       const { ids } = request.body;
 
       if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -974,51 +1297,81 @@ export class ProdutosController {
         });
       }
 
-      console.log(`🔍 Tentando deletar ${ids.length} produto(s)...`);
-
       // Verificar quais produtos existem
       const produtos = await prisma.produto.findMany({
         where: { id: { in: ids } },
-        include: { imagemproduto: true }
+        include: { ImagemProduto: true }
       });
 
       const produtosEncontrados = produtos.map(p => p.id);
       const produtosNaoEncontrados = ids.filter(id => !produtosEncontrados.includes(id));
 
-      // Deletar arquivos físicos e registros de imagens
-      let totalArquivosDeletados = 0;
+      // Deletar imagens do Cloudinary
+      let totalCloudinaryDeletadas = 0;
       for (const produto of produtos) {
-        const arquivosDeletados = await deleteProductFiles(produto.id);
-        totalArquivosDeletados += arquivosDeletados;
+        for (const imagem of produto.ImagemProduto) {
+          if (imagem.id) {
+            await deleteFromCloudinary(imagem.id);
+            totalCloudinaryDeletadas++;
+          }
+        }
 
-        await prisma.imagemproduto.deleteMany({
+        // Deletar arquivos temporários
+        await deleteTempFiles(produto.id);
+
+        // Deletar registros do banco
+        await prisma.imagemProduto.deleteMany({
           where: { produtoId: produto.id }
         });
       }
 
-      // Remover relações com categorias
-      await prisma.produto.updateMany({
-        where: { id: { in: produtosEncontrados } },
-        data: {
-          estoque: {
-            set: 0
-          }
+      // Verificar produtos que não podem ser deletados
+      const produtosParaMarcarInativo: string[] = [];
+      const produtosParaDeletar: string[] = [];
+
+      for (const produtoId of produtosEncontrados) {
+        const [temItensCarrinho, temItensPedido, temAvaliacoes] = await Promise.all([
+          prisma.itemCarrinho.findFirst({ where: { produtoId } }),
+          prisma.itemPedido.findFirst({ where: { produtoId } }),
+          prisma.avaliacao.findFirst({ where: { produtoId } })
+        ]);
+
+        if (temItensCarrinho || temItensPedido || temAvaliacoes) {
+          produtosParaMarcarInativo.push(produtoId);
+        } else {
+          produtosParaDeletar.push(produtoId);
         }
-      });
+      }
 
-      // Deletar os produtos
-      const result = await prisma.produto.deleteMany({
-        where: { id: { in: produtosEncontrados } }
-      });
+      // Marcar produtos em uso como INACTIVO
+      if (produtosParaMarcarInativo.length > 0) {
+        await prisma.produto.updateMany({
+          where: { id: { in: produtosParaMarcarInativo } },
+          data: {
+            status: 'INATIVO',
+            quantidade: 0
+          }
+        });
+      }
 
-      console.log(`✅ ${result.count} produto(s) deletado(s) com sucesso`);
+      // Deletar produtos que não estão em uso
+      let deletadosCount = 0;
+      if (produtosParaDeletar.length > 0) {
+        const result = await prisma.produto.deleteMany({
+          where: { id: { in: produtosParaDeletar } }
+        });
+        deletadosCount = result.count;
+      }
+
+      const totalProcessados = deletadosCount + produtosParaMarcarInativo.length;
 
       const response: any = {
         success: true,
-        message: `${result.count} produto(s) deletado(s) com sucesso`,
+        message: `${totalProcessados} produto(s) processado(s)`,
         data: {
-          deletados: result.count,
-          arquivosDeletados: totalArquivosDeletados,
+          deletados: deletadosCount,
+          marcadosInativos: produtosParaMarcarInativo.length,
+          imagensCloudinaryDeletadas: totalCloudinaryDeletadas,
           produtosNaoEncontrados
         }
       };
@@ -1027,23 +1380,213 @@ export class ProdutosController {
         response.warning = `Alguns produtos não foram encontrados: ${produtosNaoEncontrados.join(', ')}`;
       }
 
+      if (produtosParaMarcarInativo.length > 0) {
+        response.notice = `${produtosParaMarcarInativo.length} produto(s) foram marcados como inativos (estão em uso)`;
+      }
+
       reply.send(response);
 
     } catch (error: any) {
       console.error('❌ Erro ao deletar múltiplos produtos:', error);
-
       reply.status(500).send({
         success: false,
-        message: 'Erro interno ao deletar produtos',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: 'Erro interno ao deletar produtos'
       });
     }
   }
 
-  private determinarStatus(ativo: boolean, estoque: number): string {
-    if (!ativo) return 'inativo';
-    if (estoque === 0) return 'sem_estoque';
-    if (estoque <= 10) return 'baixo_estoque';
-    return 'ativo';
+  // Adicione este método após o getEstatisticasProdutos
+  async getProdutosMaisVendidos(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const {
+        limit = '5',
+        periodo = 'todos',
+        categoria = ''
+      } = request.query as ProdutosMaisVendidosQuery;
+
+      const limitNum = parseInt(limit, 10);
+
+      console.log('📊 Buscando produtos mais vendidos:', { limit: limitNum, periodo, categoria });
+
+      let dateFilter: any = {};
+      const hoje = new Date();
+
+        switch (periodo) {
+          case 'hoje':
+            const inicioHoje = new Date(hoje);
+            inicioHoje.setHours(0, 0, 0, 0);
+            dateFilter = {gte : inicioHoje};
+            break;
+          case '7dias':
+          const seteDiasAtras = new Date(hoje)  
+          seteDiasAtras.setDate(seteDiasAtras.getDate() - 7);
+          dateFilter = {gte : seteDiasAtras};
+            break;
+          case '30dias':
+            const trintaDiasAtras = new Date(hoje);
+            trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
+            dateFilter = {gte: trintaDiasAtras}
+            break;
+          case 'mes':
+            const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+            dateFilter = {gte: inicioMes};
+            break;
+        }      
+
+      const itensPedidoAgregados = await prisma.itemPedido.groupBy({
+        by: ['produtoId'],
+        _sum: {
+          quantidade: true,
+            precoTotal:true
+        },
+        where:{
+          produto: {
+            status: "ATIVO",
+            ...(categoria ? { id_categoria: categoria } : {})
+          },
+          pedido: {
+             status: { in: ['ENTREGUE', 'CONFIRMADO', 'ENVIADO'] },
+          ...(periodo !== 'todos' ? { criadoEm: dateFilter } : {})
+          }
+        },
+        orderBy: {
+        _sum: {
+          quantidade: 'desc'
+        }
+      },
+       take: limitNum
+      });
+
+      console.log(`📊 Produtos vendidos encontrados: ${itensPedidoAgregados.length}`);
+
+      // 5. Se não encontrou produtos vendidos, buscar produtos ativos
+      if (itensPedidoAgregados.length === 0) {
+        console.log('ℹ️ Nenhum item de pedido encontrado, retornando produtos ativos');
+
+        const produtosAtivos = await prisma.produto.findMany({
+          where: {
+            status: 'ATIVO',
+            ...(categoria ? { id_categoria: categoria } : {})
+          },
+          include: {
+            ImagemProduto: {
+              where: { principal: true },
+              take: 1
+            },
+            Categoria: true
+          },
+          orderBy: { criadoEm: 'desc' },
+          take: limitNum
+        });
+
+        const produtosFormatados = produtosAtivos.map(produto => ({
+          id: produto.id,
+          nome: produto.nome,
+          imagem: buildImageUrlFromFoto(produto.foto),
+          quantidade: 0,
+          total: 0,
+          precoUnitario: produto.preco,
+          categoria: produto.Categoria?.nome || 'Sem categoria'
+        }));
+
+        return reply.send({
+          success: true,
+          data: produtosFormatados
+        });
+      }
+
+      // 6. Buscar detalhes dos produtos
+      const produtoIds = itensPedidoAgregados.map(pv => pv.produtoId);
+
+      const produtos = await prisma.produto.findMany({
+        where: {
+          id: { in: produtoIds },
+          status: 'ATIVO',
+        },
+        include: {
+          ImagemProduto: {
+            where: { principal: true },
+            take: 1
+          },
+          Categoria: true
+        }
+      });
+
+      // 7. Criar mapa para acesso rápido
+      const produtosMap = new Map();
+      produtos.forEach(produto => {
+        produtosMap.set(produto.id, produto);
+      });
+
+      // 8. Montar resposta final
+      const produtosMaisVendidos = itensPedidoAgregados
+        .map(pv => {
+          const produto = produtosMap.get(pv.produtoId);
+          if (!produto) return null;
+
+          const quantidade = pv._sum.quantidade || 0;
+          const total = pv._sum.precoTotal || 0;
+
+          return {
+            id: produto.id,
+            nome: produto.nome,
+            imagem: buildImageUrlFromFoto(produto.foto),
+            quantidade,
+            total,
+            precoUnitario: produto.preco,
+            categoria: produto.categoria?.nome || 'Sem categoria'
+          };
+        })
+        .filter(Boolean);
+
+      console.log(`✅ Produtos formatados: ${produtosMaisVendidos.length}`);
+
+      return reply.send({
+        success: true,
+        data: produtosMaisVendidos
+      });
+
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar produtos mais vendidos:', error);
+      console.error('Stack trace:', error.stack);
+
+      // Tentar retornar produtos ativos como último recurso
+      try {
+        console.log('🔄 Tentando fallback: produtos ativos');
+
+        const produtosAtivos = await prisma.produto.findMany({
+          where: { status: 'ATIVO' },
+          include: {
+            ImagemProduto: {
+              where: { principal: true },
+              take: 1
+            }
+          },
+          take: 5,
+          orderBy: { criadoEm: 'desc' }
+        });
+
+        const produtosFormatados = produtosAtivos.map(produto => ({
+          id: produto.id,
+          nome: produto.nome,
+          imagem: produto.foto || buildImageUrlFromFoto(produto.foto),
+          quantidade: 0,
+          total: 0,
+          precoUnitario: produto.preco,
+          categoria: 'Sem categoria'
+        }));
+
+        return reply.send({
+          success: true,
+          data: produtosFormatados
+        });
+      } catch (fallbackError) {
+        console.error('❌ Fallback também falhou:', fallbackError);
+        return reply.status(500).send({
+          success: false,
+          message: 'Erro interno ao buscar produtos mais vendidos'
+        });
+      }
+    }
   }
 }

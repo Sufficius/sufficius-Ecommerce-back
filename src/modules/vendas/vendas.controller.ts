@@ -26,7 +26,7 @@ export class VendasController {
               email: true
             }
           },
-          itempedido: {
+          ItemPedido: {
             include: {
               produto: {
                 select: {
@@ -42,7 +42,7 @@ export class VendasController {
       // Calcular totais
       const totalVendas = pedidosHoje.reduce((sum, pedido) => sum + (pedido.total || 0), 0);
       const totalItens = pedidosHoje.reduce((sum, pedido) => 
-        sum + pedido.itempedido.reduce((itemSum, item) => itemSum + item.quantidade, 0), 0
+        sum + pedido.ItemPedido.reduce((itemSum, item) => itemSum + item.quantidade, 0), 0
       );
       const ticketMedio = pedidosHoje.length > 0 ? totalVendas / pedidosHoje.length : 0;
 
@@ -56,7 +56,7 @@ export class VendasController {
       const produtosMap = new Map<string, { quantidade: number; total: number; nome: string }>();
       
       pedidosHoje.forEach(pedido => {
-        pedido.itempedido.forEach(item => {
+        pedido.ItemPedido.forEach(item => {
           if (item.produto) {
             const produtoId = item.produtoId;
             const current = produtosMap.get(produtoId) || { quantidade: 0, total: 0, nome: item.produto.nome };
@@ -103,7 +103,7 @@ export class VendasController {
           status: pedido.status,
           total: pedido.total,
           criadoEm: pedido.criadoEm.toISOString(),
-          itens: pedido.itempedido.reduce((sum, item) => sum + item.quantidade, 0)
+          itens: pedido.ItemPedido.reduce((sum, item) => sum + item.quantidade, 0)
         }))
       };
 
@@ -171,8 +171,7 @@ export class VendasController {
               email: true
             }
           },
-          itempedido: true,
-          pagamento: true
+          ItemPedido: true,
         },
         orderBy: { criadoEm: 'desc' }
       });
@@ -213,8 +212,8 @@ export class VendasController {
           status: pedido.status,
           total: pedido.total,
           criadoEm: pedido.criadoEm.toISOString(),
-          itens: pedido.itempedido.reduce((sum, item) => sum + item.quantidade, 0),
-          pagamento: pedido.pagamento?.[0]?.status || 'PENDENTE'
+          itens: pedido.ItemPedido.reduce((sum, item) => sum + item.quantidade, 0),
+          metodoPagamento: pedido.metodoPagamento || 'PENDENTE'
         }))
       };
 
@@ -281,7 +280,7 @@ export class VendasController {
           SUM(ip.quantidade) as quantidade_total,
           COUNT(DISTINCT ped.id) as pedidos_total
         FROM produto p
-        JOIN itempedido ip ON p.id = ip.produtoId
+        JOIN ItemPedido ip ON p.id = ip.produtoId
         JOIN pedido ped ON ip.pedidoId = ped.id
         WHERE ped.criadoEm >= ${trintaDiasAtras}
           AND ped.status != 'CANCELADO'
@@ -347,17 +346,17 @@ export class VendasController {
         ORDER BY mes
       `;
 
-      // Métodos de pagamento mais usados
-      const metodosPagamento = await prisma.$queryRaw`
-        SELECT 
-          metodoPagamento,
-          COUNT(*) as total,
-          SUM(valor) as valor_total
-        FROM pagamento
-        WHERE status = 'APROVADO'
-        GROUP BY metodoPagamento
-        ORDER BY total DESC
-      `;
+      // // Métodos de pagamento mais usados
+      // const metodosPagamento = await prisma.$queryRaw`
+      //   SELECT 
+      //     metodoPagamento,
+      //     COUNT(*) as total,
+      //     SUM(valor) as valor_total
+      //   FROM pagamento
+      //   WHERE status = 'APROVADO'
+      //   GROUP BY metodoPagamento
+      //   ORDER BY total DESC
+      // `;
 
       // Clientes com mais compras
       const topClientes = await prisma.$queryRaw`
@@ -381,7 +380,7 @@ export class VendasController {
           fim: new Date().toISOString()
         },
         vendasPorMes: vendasPorMes || [],
-        metodosPagamento: metodosPagamento || [],
+        // metodosPagamento: metodosPagamento || [],
         topClientes: topClientes || []
       };
 

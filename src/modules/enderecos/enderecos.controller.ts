@@ -1,6 +1,7 @@
 // src/modules/enderecos/enderecos.controller.ts
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma';
+import { randomUUID } from 'crypto';
 
 interface CriarEnderecoBody {
   rua: string;
@@ -9,7 +10,6 @@ interface CriarEnderecoBody {
   bairro: string;
   cidade: string;
   estado: string;
-  cep: string;
   pais?: string;
   padrao?: boolean;
 }
@@ -21,7 +21,6 @@ interface AtualizarEnderecoBody {
   bairro?: string;
   cidade?: string;
   estado?: string;
-  cep?: string;
   pais?: string;
   padrao?: boolean;
 }
@@ -78,11 +77,11 @@ export class EnderecosController {
     try {
       const usuario = (request.user as any);
       const body = request.body as CriarEnderecoBody;
-      
-      const { rua, numero, complemento, bairro, cidade, estado, cep, pais, padrao } = body;
+
+      const { rua, numero, complemento, bairro, cidade, estado, pais, padrao } = body;
 
       // Validação básica
-      if (!rua || !numero || !bairro || !cidade || !estado || !cep) {
+      if (!rua || !numero || !bairro || !cidade || !estado) {
         return reply.status(400).send({
           success: false,
           message: 'Campos obrigatórios não fornecidos'
@@ -92,7 +91,7 @@ export class EnderecosController {
       // Se for definir como padrão, remover padrão dos outros endereços
       if (padrao) {
         await prisma.endereco.updateMany({
-          where: { 
+          where: {
             usuarioId: usuario.id,
             padrao: true
           },
@@ -102,16 +101,12 @@ export class EnderecosController {
 
       const endereco = await prisma.endereco.create({
         data: {
-          id: `end_${Date.now()}`,
+          id: randomUUID(),
           usuarioId: usuario.id,
           rua,
           numero,
-          complemento,
           bairro,
           cidade,
-          estado,
-          cep,
-          pais: pais || 'Brasil',
           padrao: padrao || false
         }
       });
@@ -141,7 +136,7 @@ export class EnderecosController {
 
       // Verificar se endereço existe e pertence ao usuário
       const endereco = await prisma.endereco.findFirst({
-        where: { 
+        where: {
           id,
           usuarioId: usuario.id
         }
@@ -157,7 +152,7 @@ export class EnderecosController {
       // Se for definir como padrão, remover padrão dos outros endereços
       if (body.padrao) {
         await prisma.endereco.updateMany({
-          where: { 
+          where: {
             usuarioId: usuario.id,
             padrao: true,
             id: { not: id }
@@ -170,7 +165,6 @@ export class EnderecosController {
         where: { id },
         data: {
           ...body,
-          atualizadoEm: new Date()
         }
       });
 
@@ -198,7 +192,7 @@ export class EnderecosController {
 
       // Verificar se endereço existe e pertence ao usuário
       const endereco = await prisma.endereco.findFirst({
-        where: { 
+        where: {
           id,
           usuarioId: usuario.id
         }
@@ -213,7 +207,7 @@ export class EnderecosController {
 
       // Remover padrão dos outros endereços
       await prisma.endereco.updateMany({
-        where: { 
+        where: {
           usuarioId: usuario.id,
           padrao: true,
           id: { not: id }
@@ -224,9 +218,8 @@ export class EnderecosController {
       // Definir este como padrão
       const enderecoAtualizado = await prisma.endereco.update({
         where: { id },
-        data: { 
+        data: {
           padrao: true,
-          atualizadoEm: new Date()
         }
       });
 
@@ -254,12 +247,12 @@ export class EnderecosController {
 
       // Verificar se endereço existe e pertence ao usuário
       const endereco = await prisma.endereco.findFirst({
-        where: { 
+        where: {
           id,
           usuarioId: usuario.id
         },
         include: {
-          pedido: {
+          Pedido: {
             take: 1
           }
         }
@@ -273,7 +266,7 @@ export class EnderecosController {
       }
 
       // Verificar se há pedidos associados
-      if (endereco.pedido.length > 0) {
+      if (endereco.Pedido.length > 0) {
         return reply.status(400).send({
           success: false,
           message: 'Não é possível deletar endereço com pedidos associados'
@@ -287,7 +280,7 @@ export class EnderecosController {
       // Se era o endereço padrão, definir outro como padrão
       if (endereco.padrao) {
         const outroEndereco = await prisma.endereco.findFirst({
-          where: { 
+          where: {
             usuarioId: usuario.id,
             id: { not: id }
           }

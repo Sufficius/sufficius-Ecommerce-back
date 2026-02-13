@@ -106,8 +106,6 @@ export default async function avaliacoesRoutes(app: FastifyInstance) {
     '/',
     {
       schema: {
-        tags: ['Avaliações'],
-        summary: 'Listar avaliações',
         querystring: {
           type: 'object',
           properties: {
@@ -146,8 +144,6 @@ export default async function avaliacoesRoutes(app: FastifyInstance) {
     '/produto/:produtoId/estatisticas',
     {
       schema: {
-        tags: ['Avaliações'],
-        summary: 'Obter estatísticas de avaliações de um produto',
         params: {
           type: 'object',
           properties: {
@@ -195,9 +191,6 @@ export default async function avaliacoesRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Avaliações'],
-        summary: 'Criar nova avaliação',
-        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['produtoId', 'nota'],
@@ -235,9 +228,6 @@ export default async function avaliacoesRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Avaliações'],
-        summary: 'Atualizar avaliação',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -280,9 +270,6 @@ export default async function avaliacoesRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Avaliações'],
-        summary: 'Deletar avaliação',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {

@@ -1,6 +1,7 @@
 // src/modules/pedidos/pedidos.controller.ts
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma';
+import { randomUUID } from 'crypto';
 
 export class PedidosController {
     async meusPedidos(
@@ -28,13 +29,13 @@ export class PedidosController {
                 prisma.pedido.findMany({
                     where,
                     include: {
-                        itempedido: {
+                        ItemPedido: {
                             include: {
                                 produto: {
                                     select: {
                                         id: true,
                                         nome: true,
-                                        imagemproduto: {
+                                        ImagemProduto: {
                                             where: { principal: true },
                                             take: 1
                                         }
@@ -43,7 +44,6 @@ export class PedidosController {
                             }
                         },
                         endereco: true,
-                        pagamento: true
                     },
                     orderBy: { criadoEm: 'desc' },
                     skip,
@@ -79,18 +79,17 @@ export class PedidosController {
             const pedido = await prisma.pedido.findUnique({
                 where: { id },
                 include: {
-                    itempedido: {
+                    ItemPedido: {
                         include: {
                             produto: {
                                 include: {
-                                    imagemproduto: true
+                                    ImagemProduto: true
                                 }
                             },
                             pedido: true
                         }
                     },
                     endereco: true,
-                    pagamento: true,
                     usuario: {
                         select: {
                             id: true,
@@ -133,7 +132,7 @@ export class PedidosController {
         request: FastifyRequest<{
             Body: {
                 enderecoId: string;
-                metodoPagamento: string;
+                metodoPagamento?: string;
                 observacoes?: string;
                 cupom?: string;
             }
@@ -142,29 +141,33 @@ export class PedidosController {
     ) {
         try {
             const usuario = request.user as any;
-            const { enderecoId, metodoPagamento, observacoes, cupom } = request.body;
+            const { enderecoId, metodoPagamento = "DINHEIRO_ENTREGA", observacoes, cupom } = request.body;
+
+
+            if (!enderecoId) {
+                return reply.status(400).send({
+                    success: false,
+                    message: 'Endereço é obrigatório'
+                });
+            }
+
+            console.log(`📝 Criando pedido para usuário: ${usuario.id}`);
+            console.log(`🏠 Endereço selecionado: ${enderecoId}`);
+            console.log(`💳 Método de pagamento: ${metodoPagamento}`);
+
 
             // Buscar carrinho do usuário
             const carrinho = await prisma.carrinho.findUnique({
                 where: { usuarioId: usuario.id },
                 include: {
-                    itemcarrinho: {
+                    ItemCarrinho: {
                         include: {
                             produto: {
                                 select: {
                                     id: true,
                                     nome: true,
                                     preco: true,
-                                    precoDesconto: true,
-                                    estoque: true
-                                }
-                            },
-                            carrinho: {
-                                select: {
-                                    id: true,
-                                    usuario: true,
-                                    itemcarrinho: true,
-                                    usuarioId: true
+                                    quantidade: true,
                                 }
                             }
                         }
@@ -172,12 +175,22 @@ export class PedidosController {
                 }
             });
 
-            if (!carrinho || carrinho.itemcarrinho.length === 0) {
+            if (!carrinho) {
+                return reply.status(400).send({
+                    success: false,
+                    message: 'Carrinho não encontrado'
+                });
+            }
+
+
+            if (!carrinho || carrinho.ItemCarrinho.length === 0) {
                 return reply.status(400).send({
                     success: false,
                     message: 'Carrinho está vazio'
                 });
             }
+
+            console.log(`🛒 Itens no carrinho: ${carrinho.ItemCarrinho.length}`);
 
             // Verificar endereço
             const endereco = await prisma.endereco.findFirst({
@@ -194,136 +207,125 @@ export class PedidosController {
                 });
             }
 
+            console.log(`📍 Endereço validado: ${endereco.rua}, ${endereco.numero}`);
+
             // Verificar estoque e calcular valores
             let subtotal = 0;
-            let valorDesconto = 0;
+            const itensSemEstoque: string[] = [];
 
-            for (const item of carrinho.itemcarrinho) {
-                const estoqueDisponivel = item.produto?.estoque || item.produto.estoque;
+            for (const item of carrinho.ItemCarrinho) {
+                const estoqueDisponivel = item.produto.quantidade;
+
+                console.log(`📦 Verificando produto: ${item.produto.nome}`);
+                console.log(`   Quantidade solicitada: ${item.quantidade}`);
+                console.log(`   Estoque disponível: ${estoqueDisponivel}`);
 
                 if (estoqueDisponivel < item.quantidade) {
-                    return reply.status(400).send({
-                        success: false,
-                        message: `Produto "${item.produto.nome}" está com estoque insuficiente`
-                    });
+                    itensSemEstoque.push(`${item.produto.nome} (disponível: ${estoqueDisponivel}, solicitado: ${item.quantidade})`);
+                    continue;
+                    // return reply.status(400).send({
+                    //     success: false,
+                    //     message: `Produto "${item.produto.nome}" está com estoque insuficiente`
+                    // });
                 }
 
-                const preco = item.produto?.preco || item.produto.precoDesconto || item.produto.preco;
-                subtotal += preco * item.quantidade;
+                const preco = item.produto?.preco;
+                const itemTotal = preco * item.quantidade;
+                subtotal += itemTotal;
+
+                console.log(`   Preço: ${preco}, Subtotal item: ${itemTotal}`);
+            }
+
+            if (itensSemEstoque.length > 0) {
+                return reply.status(400).send({
+                    success: false,
+                    message: 'Alguns produtos estão com estoque insuficiente',
+                    details: itensSemEstoque
+                });
             }
 
             // Cálculos simplificados (em produção, calcular frete e impostos reais)
-            const frete = 15.00; // Valor fixo de exemplo
+            const frete = 0; // Valor fixo de exemplo
             const imposto = subtotal * 0.12; // 12% de imposto
-
-            // Aplicar cupom se existir
-            if (cupom) {
-                const cupomValido = cupom ?  await prisma.cupom.findFirst({
-                    where: {
-                        codigo: cupom,
-                        ativo: true,
-                        validoAte: { gte: new Date() },
-                    }
-                }): null;
-
-                if (cupomValido) {
-
-                    // Atualizar contador de uso
-                    await prisma.cupom.update({
-                        where: { id: cupomValido.id },
-                        data: {
-                            usado: (cupomValido.usado || 0) + 1
-                        }
-                    });
-                }
-            }
-
+            const valorDesconto = 0;
             const total = subtotal + frete + imposto - valorDesconto;
 
+            console.log(`💰 Cálculos finais:`);
+            console.log(`   Subtotal: ${subtotal}`);
+            console.log(`   Frete: ${frete}`);
+            console.log(`   Imposto: ${imposto}`);
+            console.log(`   Desconto: ${valorDesconto}`);
+            console.log(`   Total: ${total}`);
             // Gerar número do pedido
-            const numeroPedido = `PED${Date.now()}${Math.floor(Math.random() * 1000)}`;
+            const numeroPedido = randomUUID();
 
             // Criar pedido
-            const pedido = await prisma.$transaction(async (tx) => {
-                // Criar pedido
-                const novoPedido = await tx.pedido.create({
-                    data: {
-                        id: `ped_${Date.now()}`,
-                        numeroPedido,
-                        usuarioId: usuario.id,
-                        enderecoId,
-                        status: 'PAGAMENTO_PENDENTE',
-                        subtotal,
-                        frete,
-                        imposto,
-                        desconto: valorDesconto,
-                        total,
-                        metodoEnvio: 'CORREIOS',
-                        observacoes
-                    }
-                });
-
-                // Criar itens do pedido
-                for (const item of carrinho.itemcarrinho) {
-                    const preco = item.produto?.preco || item.produto.precoDesconto || item.produto.preco;
-
-                    await tx.itempedido.create({
-                        data: {
-                            id: `itemp_${Date.now()}_${Math.random()}`,
-                            pedidoId: novoPedido.id,
-                            produtoId: item.produtoId,
-                            quantidade: item.quantidade,
-                            precoUnitario: preco,
-                            precoTotal: preco * item.quantidade
-                        }
-                    });
-
-                    // Atualizar estoque
-                    if (item.id) {
-                        await tx.produto.update({
-                            where: { id: item.id },
-                            data: {
-                                estoque: { decrement: item.quantidade }
-                            }
-                        });
-                    } else {
-                        await tx.produto.update({
-                            where: { id: item.produtoId },
-                            data: {
-                                estoque: { decrement: item.quantidade }
-                            }
-                        });
-                    }
-                }
-
-                // Limpar carrinho
-                await tx.itemcarrinho.deleteMany({
-                    where: { carrinhoId: carrinho.id }
-                });
-
-                return novoPedido;
-            });
-
-            // Criar pagamento associado
-            const pagamento = await prisma.pagamento.create({
+            const pedido = await prisma.pedido.create({
                 data: {
-                    id: `pag_${Date.now()}`,
-                    pedidoId: pedido.id,
-                    metodoPagamento,
-                    gatewayPagamento: 'MERCADOPAGO', // Ajuste conforme seu gateway
-                    valor: pedido.total,
-                    status: 'PENDENTE'
+                    id: randomUUID(),
+                    numeroPedido,
+                    usuarioId: usuario.id,
+                    enderecoId: enderecoId,
+                    status: 'PAGAMENTO_PENDENTE',
+                    subtotal,
+                    frete,
+                    metodoPagamento: "DINHEIRO_ENTREGA",
+                    desconto: valorDesconto,
+                    total,
+                    metodoEnvio: 'CORREIOS',
+                    observacoes,
+                    statusPagamento: "PENDENTE"
                 }
             });
+
+            console.log(`✅ Pedido criado: ${pedido.id}`);
+
+            // Criar itens do pedido
+            for (const item of carrinho.ItemCarrinho) {
+                const preco = item.produto.preco;
+
+                console.log(`➕ Criando item de pedido para produto: ${item.produto.nome}`);
+                console.log(`   Quantidade: ${item.quantidade}, Preço: ${preco}`);
+
+                await prisma.itemPedido.create({
+                    data: {
+                        id: randomUUID(),
+                        pedidoId: pedido.id,
+                        produtoId: item.produtoId,
+                        quantidade: item.quantidade,
+                        precoUnitario: preco,
+                        precoTotal: preco * item.quantidade
+                    }
+                });
+
+                await prisma.produto.update({
+                    where: { id: item.produtoId },
+                    data: {
+                        quantidade: { decrement: item.quantidade }
+                    }
+                });
+                console.log(`📉 Estoque atualizado para produto ${item.produto.nome}`);
+                // console.log("ID DO ITEM: ", item.id);
+            }
+
+            // Limpar carrinho
+            await prisma.itemCarrinho.deleteMany({
+                where: { carrinhoId: carrinho.id }
+            });
+
+            console.log(`🧹 Carrinho limpo: ${carrinho.id}`);
 
             reply.status(201).send({
                 success: true,
                 message: 'Pedido criado com sucesso',
                 data: {
-                    pedido,
-                    pagamento
+                    pedidoId: pedido.id,
+                    numeroPedido: pedido.numeroPedido,
+                    status: pedido.status,
+                    total: pedido.total,
+                    criadoEm: pedido.criadoEm
                 },
-                pagamentoUrl: `/pagamentos/${pagamento.id}/processar`
+                pagamentoUrl: `/pagamentos/${pedido.id}/processar`
             });
         } catch (error) {
             console.error('Erro ao criar pedido:', error);
@@ -350,8 +352,7 @@ export class PedidosController {
             const pedido = await prisma.pedido.findUnique({
                 where: { id },
                 include: {
-                    itempedido: true,
-                    pagamento: true
+                    ItemPedido: true,
                 }
             });
 
@@ -379,45 +380,41 @@ export class PedidosController {
             }
 
             // Atualizar pedido
-            const pedidoAtualizado = await prisma.$transaction(async (tx) => {
-                const pedidoUpdate = await tx.pedido.update({
-                    where: { id },
+            const pedidoAtualizado = await prisma.pedido.update({
+                where: { id },
+                data: {
+                    status: 'CANCELADO'
+                }
+            });
+
+            // Devolver itens ao estoque
+            for (const item of pedido.ItemPedido) {
+                if (item.id) {
+                    await prisma.produto.update({
+                        where: { id: item.id },
+                        data: {
+                            quantidade: { increment: item.quantidade }
+                        }
+                    });
+                } else {
+                    await prisma.produto.update({
+                        where: { id: item.produtoId },
+                        data: {
+                            quantidade: { increment: item.quantidade }
+                        }
+                    });
+                }
+            }
+
+            // Cancelar pagamento se existir
+            if (pedido.metodoPagamento.length > 0) {
+                await prisma.pedido.updateMany({
+                    where: { usuarioId: id },
                     data: {
                         status: 'CANCELADO'
                     }
                 });
-
-                // Devolver itens ao estoque
-                for (const item of pedido.itempedido) {
-                    if (item.id) {
-                        await tx.produto.update({
-                            where: { id: item.id },
-                            data: {
-                                estoque: { increment: item.quantidade }
-                            }
-                        });
-                    } else {
-                        await tx.produto.update({
-                            where: { id: item.produtoId },
-                            data: {
-                                estoque: { increment: item.quantidade }
-                            }
-                        });
-                    }
-                }
-
-                // Cancelar pagamento se existir
-                if (pedido.pagamento.length > 0) {
-                    await tx.pagamento.updateMany({
-                        where: { pedidoId: id },
-                        data: {
-                            status: 'CANCELADO'
-                        }
-                    });
-                }
-
-                return pedidoUpdate;
-            });
+            }
 
             reply.send({
                 success: true,
@@ -443,30 +440,58 @@ export class PedidosController {
                 status?: string;
                 dataInicio?: string;
                 dataFim?: string;
+                busca?: string;
             }
         }>,
         reply: FastifyReply
     ) {
+        const usuario = request.user as any
         try {
-            const { page = '1', limit = '20', status, dataInicio, dataFim } = request.query;
+            const { page = '1', limit = '20', status, dataInicio, dataFim, busca } = request.query;
 
             const pagina = parseInt(page);
             const limite = parseInt(limit);
             const skip = (pagina - 1) * limite;
 
             const where: any = {};
-            if (status) where.status = status;
+            if (status && status !== 'todos') {
+                where.status = status;
+            }
 
             if (dataInicio || dataFim) {
                 where.criadoEm = {};
                 if (dataInicio) where.criadoEm.gte = new Date(dataInicio);
-                if (dataFim) where.criadoEm.lte = new Date(dataFim);
+                if (dataFim) {
+                    const dataFimObj = new Date(dataFim);
+                    where.criadoEm.lte = dataFimObj;
+                }
             }
 
+            if (busca) {
+                where.OR = [
+                    { numeroPedido: { contains: busca, mode: 'insensitive' } },
+                    {
+                        usuario: {
+                            nome: { contains: busca, mode: 'insensitive' }
+                        }
+                    },
+                    {
+                        usuario: {
+                            email: { contains: busca, mode: 'insensitive' }
+                        }
+                    }
+                ];
+            }
             const [pedidos, total] = await Promise.all([
                 prisma.pedido.findMany({
-                    where,
-                    include: {
+                    where: where,
+                    select: {
+                        id: true,
+                        numeroPedido: true,
+                        status: true,
+                        total: true,
+                        atualizadoEm: true,
+                        criadoEm: true,
                         usuario: {
                             select: {
                                 id: true,
@@ -474,7 +499,16 @@ export class PedidosController {
                                 email: true
                             }
                         },
-                        pagamento: true
+                        ItemPedido: {
+                            include: {
+                                produto: {
+                                    select: {
+                                        id: true,
+                                        nome: true
+                                    }
+                                }
+                            }
+                        }
                     },
                     orderBy: { criadoEm: 'desc' },
                     skip,
@@ -483,15 +517,37 @@ export class PedidosController {
                 prisma.pedido.count({ where })
             ]);
 
+
             reply.send({
                 success: true,
-                data: pedidos,
+                data: pedidos.map(p => ({
+                    id: p.id,
+                    atualizadoEm: p.atualizadoEm.toISOString(),
+                    numeroPedido: p.numeroPedido || p.id,
+                    status: p.status,
+                    total: p.total || 0,
+                    criadoEm: p.criadoEm.toISOString(),
+                    usuario: {
+                        nome: p.usuario?.nome || 'Cliente',
+                        email: p.usuario?.email || ''
+                    },
+                    pagamento: [{
+                        status: p.status === 'PAGAMENTO_PENDENTE' ? 'PENDENTE' : 'CONCLUIDO'
+                    }],
+                    itempedido: (p.ItemPedido || []).map(item => ({
+                        id: item.id,
+                        quantidade: item.quantidade || 0,
+                        precoUnitario: item.precoUnitario || 0,
+                        precoTotal: item.precoTotal || 0,
+                        produto: item.produto || { nome: 'Produto' }
+                    }))
+                })),
                 total,
                 page: pagina,
                 totalPages: Math.ceil(total / limite)
             });
         } catch (error) {
-            console.error('Erro ao listar pedidos:', error);
+            console.error('❌ Erro ao listar pedidos:', error);
             reply.status(500).send({
                 success: false,
                 message: 'Erro ao listar pedidos'
@@ -547,12 +603,11 @@ export class PedidosController {
             });
 
             // Registrar histórico
-            await prisma.historicostatuspedido.create({
+            await prisma.historicoPedido.create({
                 data: {
-                    id: `hist_${Date.now()}`,
+                    id: randomUUID(),
                     pedidoId: id,
                     status: "PROCESSANDO",
-                    alteradoEm: new Date()
                 }
             });
 

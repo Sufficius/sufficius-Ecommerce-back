@@ -7,13 +7,13 @@ export default async function servicoRoutes(app: FastifyInstance) {
     const { id, nome, preco, sku } = req.body as any;
 
     return prisma.produto.create({
-      data: { id, nome, preco, sku }
+      data: { id, nome, preco }
     });
   });
 
   app.get("/", async () => {
     return prisma.produto.findMany({
-      include: { categoria: true }
+      include: { Categoria: true }
     });
   });
 }

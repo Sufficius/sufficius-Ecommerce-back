@@ -146,18 +146,13 @@ interface EstatisticasPedidosRoute {
   };
 }
 
-export default async function pedidosRoutes(app: FastifyInstance) {
-  // Rotas protegidas para usuários
-  
+export default async function pedidosRoutes(app: FastifyInstance) {  
   // Meus pedidos
   app.get<MeusPedidosRoute>(
     '/meus-pedidos',
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Pedidos'],
-        summary: 'Listar meus pedidos',
-        security: [{ bearerAuth: [] }],
         querystring: {
           type: 'object',
           properties: {
@@ -189,9 +184,6 @@ export default async function pedidosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Pedidos'],
-        summary: 'Buscar pedido por ID',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -226,9 +218,6 @@ export default async function pedidosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Pedidos'],
-        summary: 'Criar novo pedido a partir do carrinho',
-        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['enderecoId', 'metodoPagamento'],
@@ -236,7 +225,6 @@ export default async function pedidosRoutes(app: FastifyInstance) {
             enderecoId: { type: 'string' },
             metodoPagamento: { type: 'string' },
             observacoes: { type: 'string' },
-            cupom: { type: 'string' }
           }
         },
         response: {
@@ -268,9 +256,6 @@ export default async function pedidosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Pedidos'],
-        summary: 'Cancelar pedido',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -320,11 +305,8 @@ export default async function pedidosRoutes(app: FastifyInstance) {
   app.get<ListarPedidosRoute>(
     '/',
     {
-      preHandler: [authenticate, isAdmin],
+      preHandler: [authenticate],
       schema: {
-        tags: ['Pedidos'],
-        summary: 'Listar todos os pedidos (apenas admin)',
-        security: [{ bearerAuth: [] }],
         querystring: {
           type: 'object',
           properties: {
@@ -358,9 +340,6 @@ export default async function pedidosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate, isAdmin],
       schema: {
-        tags: ['Pedidos'],
-        summary: 'Atualizar status do pedido (apenas admin)',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -411,9 +390,6 @@ export default async function pedidosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate, isAdmin],
       schema: {
-        tags: ['Pedidos'],
-        summary: 'Obter estatísticas de pedidos (apenas admin)',
-        security: [{ bearerAuth: [] }],
         querystring: {
           type: 'object',
           properties: {

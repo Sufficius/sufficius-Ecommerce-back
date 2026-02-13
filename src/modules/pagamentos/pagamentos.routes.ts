@@ -117,16 +117,12 @@ interface MetodosPagamentoRoute {
   };
 }
 
-export default async function pagamentosRoutes(app: FastifyInstance) {
-  // Rotas públicas
-  
+export default async function pagamentosRoutes(app: FastifyInstance) {  
   // Webhook para notificações dos gateways de pagamento
   app.post<WebhookPagamentoRoute>(
     '/webhook/:gateway',
     {
       schema: {
-        tags: ['Pagamentos'],
-        summary: 'Webhook para notificações de pagamento',
         params: {
           type: 'object',
           properties: {
@@ -155,9 +151,6 @@ export default async function pagamentosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Pagamentos'],
-        summary: 'Criar pagamento para pedido',
-        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['pedidoId', 'metodoPagamento'],
@@ -198,9 +191,6 @@ export default async function pagamentosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Pagamentos'],
-        summary: 'Verificar status do pagamento',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -236,9 +226,6 @@ export default async function pagamentosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Pagamentos'],
-        summary: 'Listar métodos de pagamento disponíveis',
-        security: [{ bearerAuth: [] }],
         response: {
           200: {
             type: 'object',
@@ -273,9 +260,6 @@ export default async function pagamentosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Pagamentos'],
-        summary: 'Listar todos os pagamentos',
-        security: [{ bearerAuth: [] }],
         querystring: {
           type: 'object',
           properties: {
@@ -300,56 +284,5 @@ export default async function pagamentosRoutes(app: FastifyInstance) {
       }
     },
     pagamentosController.listarPagamentos.bind(pagamentosController)
-  );
-
-  // Estornar pagamento
-  app.post<EstornoPagamentoRoute>(
-    '/:pagamentoId/estornar',
-    {
-      preHandler: [authenticate],
-      schema: {
-        tags: ['Pagamentos'],
-        summary: 'Estornar pagamento',
-        security: [{ bearerAuth: [] }],
-        params: {
-          type: 'object',
-          properties: {
-            pagamentoId: { type: 'string' }
-          },
-          required: ['pagamentoId']
-        },
-        body: {
-          type: 'object',
-          properties: {
-            motivo: { type: 'string' }
-          }
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' },
-              data: { type: 'object' }
-            }
-          },
-          400: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' }
-            }
-          },
-          404: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' }
-            }
-          }
-        }
-      }
-    },
-    pagamentosController.estornarPagamento.bind(pagamentosController)
   );
 }

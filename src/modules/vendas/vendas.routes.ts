@@ -6,7 +6,7 @@ import { authenticate, isAdmin } from '../../middleware/auth.middleware';
 const vendasController = new VendasController();
 
 // Interfaces para as rotas
-interface VendasHojeRoute {
+export interface VendasHojeRoute {
   Reply: {
     200: {
       success: boolean;
@@ -96,9 +96,10 @@ export default async function vendasRoutes(app: FastifyInstance) {
     '/dashboard',
     {
       schema: {
-        tags: ['Vendas'],
-        summary: 'Dashboard público de vendas',
-        description: 'Retorna dados básicos de vendas para display público',
+        querystring: {
+          type: 'object',
+          properties: {}
+        },
         response: {
           200: {
             type: 'object',
@@ -143,9 +144,10 @@ export default async function vendasRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Vendas'],
-        summary: 'Vendas de hoje',
-        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {}
+        },
         response: {
           200: {
             type: 'object',
@@ -220,9 +222,6 @@ export default async function vendasRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Vendas'],
-        summary: 'Vendas por período',
-        security: [{ bearerAuth: [] }],
         querystring: {
           type: 'object',
           properties: {

@@ -18,7 +18,7 @@ export class PagamentosController {
       const { pedidoId, metodoPagamento, parcelas = 1 } = request.body;
 
       // Verificar se pedido existe e pertence ao usuário
-      const pedido = await prisma.pedido.findUnique({
+      const pedido = await prisma.pagamento.findUnique({
         where: { id: pedidoId },
         include: {
           usuario: true
@@ -40,7 +40,7 @@ export class PagamentosController {
       }
 
       // Verificar se pedido já está pago
-      if (pedido.status !== 'PAGAMENTO_PENDENTE') {
+      if (pedido.status !== 'PENDENTE') {
         return reply.status(400).send({
           success: false,
           message: 'Pedido não está aguardando pagamento'
@@ -48,8 +48,8 @@ export class PagamentosController {
       }
 
       // Verificar se já existe pagamento para este pedido
-      const pagamentoExistente = await prisma.pagamento.findFirst({
-        where: { pedidoId }
+      const pagamentoExistente = await prisma.pedido.findFirst({
+        where: { id: pedidoId }
       });
 
       if (pagamentoExistente) {
@@ -78,11 +78,10 @@ export class PagamentosController {
       const pagamento = await prisma.pagamento.create({
         data: {
           id: `pag_${Date.now()}`,
-          pedidoId,
-          metodoPagamento,
-          gatewayPagamento,
-          valor: pedido.total,
-          status: 'PENDENTE'
+          metodo: "TRANSFERENCIA_BANCARIA",
+          valor:0,
+          usuario,
+          pedido: {},
         }
       });
 
@@ -113,9 +112,9 @@ export class PagamentosController {
       }
 
       // Atualizar status do pedido
-      await prisma.pedido.update({
+      await prisma.pagamento.update({
         where: { id: pedidoId },
-        data: { status: 'PAGAMENTO_PENDENTE' }
+        data: { status: 'PENDENTE' }
       });
 
       reply.send(responseData);
@@ -172,10 +171,12 @@ export class PagamentosController {
         // Buscar pagamento pelo ID externo (gatewayId)
         const pagamento = await prisma.pagamento.findFirst({
           where: {
-            gatewayId: pagamentoId
+            id:pagamentoId
           },
           include: {
-            pedido: true
+            pedido: true,
+            historicos:true,
+            usuario:true,
           }
         });
 
@@ -185,14 +186,14 @@ export class PagamentosController {
             where: { id: pagamento.id },
             data: {
               status: status as any,
-              processadoEm: new Date()
+              atualizadoEm: new Date()
             }
           });
 
           // Atualizar status do pedido se pagamento aprovado
           if (status === 'APROVADO') {
-            await prisma.pedido.update({
-              where: { id: pagamento.pedidoId },
+            await prisma.pagamento.update({
+              where: { id: pagamento.id },
               data: { status: 'PROCESSANDO' }
             });
           }
@@ -218,9 +219,15 @@ export class PagamentosController {
       const pagamento = await prisma.pagamento.findUnique({
         where: { id: pagamentoId },
         include: {
+          usuario: {
+              select:{
+                id:true,
+              }
+          },
           pedido: {
             include: {
-              usuario: true
+              ItemPedido: true,
+              Pagamento:true,
             }
           }
         }
@@ -234,7 +241,7 @@ export class PagamentosController {
       }
 
       // Verificar permissão
-      if (pagamento.pedido.usuarioId !== usuario.id && usuario.tipo !== 'ADMIN') {
+      if (pagamento.usuarioId !== usuario.id && usuario.tipo !== 'ADMIN') {
         return reply.status(403).send({
           success: false,
           message: 'Você não tem permissão para ver este pagamento'
@@ -267,7 +274,7 @@ export class PagamentosController {
           nome: 'PIX',
           descricao: 'Pagamento instantâneo via PIX',
           ativo: true,
-          imagem: '/icons/pix.png'
+          imagem: '/uploads/pix.png'
         },
         {
           id: 'CARTAO_CREDITO',
@@ -323,42 +330,58 @@ export class PagamentosController {
       const limite = parseInt(limit);
       const skip = (pagina - 1) * limite;
 
+      console.log('📋 Listando Pagamentos:', { page: page, limit: limite, status, metodo });
+
       const where: any = {};
+      
       if (status) where.status = status;
       if (metodo) where.metodoPagamento = metodo;
+      console.log('Where clause:', where);
+
 
       const [pagamentos, total] = await Promise.all([
         prisma.pagamento.findMany({
-          where,
-          include: {
-            pedido: {
-              include: {
-                usuario: {
-                  select: {
-                    id: true,
-                    nome: true,
-                    email: true
-                  }
-                }
-              }
-            }
+          where:where,
+          select: {
+            id:true,
+            metodo:true,
+            status:true,
+            tipo:true,
+            valor:true,
+            atualizadoEm:true,
+            criadoEm:true,
+            canceladoEm:true,
           },
-          orderBy: { criadoEm: 'desc' },
           skip,
-          take: limite
+          take: limite,
+          orderBy: { criadoEm: 'desc' },
         }),
-        prisma.pagamento.count({ where })
+        prisma.pagamento.count({ where: where })
       ]);
+
+      console.log(`✅ Encontrados ${pagamentos.length} pagamentos de ${total} total`);
+
 
       reply.send({
         success: true,
-        data: pagamentos,
-        total,
-        page: pagina,
-        totalPages: Math.ceil(total / limite)
+        data: pagamentos.map(pagamento => ({
+          id: pagamento.id,
+          metodo: pagamento.metodo,
+          status:pagamento.status,
+          tipo:pagamento.tipo,
+          valor:pagamento.valor,
+          criadoEm:pagamento.criadoEm.toISOString(),
+          atualizadoEm:pagamento.atualizadoEm.toISOString(),
+        })),
+        pagination: {
+          page: pagina,
+          limit: limite,
+          total,
+          totalPages: Math.ceil(total / limite)
+        } 
       });
     } catch (error) {
-      console.error('Erro ao listar pagamentos:', error);
+      console.error('❌ Erro ao listar pagamentos:', error);
       reply.status(500).send({
         success: false,
         message: 'Erro ao listar pagamentos'
@@ -366,7 +389,7 @@ export class PagamentosController {
     }
   }
 
-  async estornarPagamento(
+  async cancelarPagamento(
     request: FastifyRequest<{
       Params: { pagamentoId: string };
       Body: { motivo?: string };
@@ -392,11 +415,11 @@ export class PagamentosController {
         });
       }
 
-      // Verificar se pode estornar
-      if (pagamento.status !== 'CONCLUIDO') {
+      // Verificar se pode cancelar
+      if (pagamento.status !== 'APROVADO') {
         return reply.status(400).send({
           success: false,
-          message: 'Somente pagamentos aprovados podem ser estornados'
+          message: 'Somente pagamentos aprovados podem ser cancelados'
         });
       }
 
@@ -404,27 +427,26 @@ export class PagamentosController {
       const pagamentoAtualizado = await prisma.pagamento.update({
         where: { id: pagamentoId },
         data: {
-          status: 'REEMBOLSADO',
-          metadata: motivo ? JSON.stringify({ motivoEstorno: motivo }) : undefined
+          status: 'APROVADO',
         }
       });
 
       // Atualizar pedido
-      await prisma.pedido.update({
-        where: { id: pagamento.pedidoId },
+      await prisma.pagamento.update({
+        where: { id: pagamento.id },
         data: { status: 'CANCELADO' }
       });
 
       reply.send({
         success: true,
-        message: 'Pagamento estornado com sucesso',
+        message: 'Pagamento  cancelado com sucesso',
         data: pagamentoAtualizado
       });
     } catch (error) {
-      console.error('Erro ao estornar pagamento:', error);
+      console.error('Erro ao cancelar pagamento:', error);
       reply.status(500).send({
         success: false,
-        message: 'Erro ao estornar pagamento'
+        message: 'Erro ao cancelar pagamento'
       });
     }
   }

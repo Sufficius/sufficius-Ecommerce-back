@@ -125,15 +125,10 @@ interface DeletarCategoriaRoute {
 }
 
 export default async function categoriasRoutes(app: FastifyInstance) {
-  // Rotas públicas
-  
-  // Listar categorias
   app.get<ListarCategoriasRoute>(
     '/',
     {
       schema: {
-        tags: ['Categorias'],
-        summary: 'Listar todas as categorias',
         response: {
           200: {
             type: 'object',
@@ -154,8 +149,6 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     '/hierarquia',
     {
       schema: {
-        tags: ['Categorias'],
-        summary: 'Listar categorias em formato hierárquico',
         response: {
           200: {
             type: 'object',
@@ -175,8 +168,6 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     '/:id',
     {
       schema: {
-        tags: ['Categorias'],
-        summary: 'Buscar categoria por ID',
         params: {
           type: 'object',
           properties: {
@@ -210,8 +201,6 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     '/slug/:slug',
     {
       schema: {
-        tags: ['Categorias'],
-        summary: 'Buscar categoria por slug',
         params: {
           type: 'object',
           properties: {
@@ -248,9 +237,6 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate, isAdmin],
       schema: {
-        tags: ['Categorias'],
-        summary: 'Criar nova categoria (apenas admin)',
-        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['nome', 'slug'],
@@ -289,9 +275,6 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate, isAdmin],
       schema: {
-        tags: ['Categorias'],
-        summary: 'Atualizar categoria (apenas admin)',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -343,9 +326,6 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate, isAdmin],
       schema: {
-        tags: ['Categorias'],
-        summary: 'Deletar categoria (apenas admin)',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {

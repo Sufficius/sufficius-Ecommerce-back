@@ -7,6 +7,16 @@ import fs from 'fs';
 const produtosController = new ProdutosController();
 
 // Interfaces para as rotas
+
+interface ListarProdutoRoute {
+  Reply: {
+    200: {
+      success: boolean;
+      data: any[];
+      total: number;
+    };
+  };
+}
 interface ListarProdutosRoute {
   Querystring: {
     page?: string;
@@ -25,18 +35,10 @@ interface ListarProdutosRoute {
           nome: string;
           descricao: string;
           preco: number;
-          precoDesconto?: number;
-          percentualDesconto?: number;
-          descontoAte?: string;
-          estoque: number;
-          sku: string;
-          ativo: boolean;
-          emDestaque: boolean;
+          quantidade: number;
           criadoEm: string;
-          categoria: string;
-          categoriaId?: string;
+          id_categoria?: string;
           imagem?: string;
-          imagemAlt?: string;
           status: string;
         }>;
         paginacao: {
@@ -81,17 +83,12 @@ interface BuscarProdutoPorIdRoute {
 
 interface AtualizarProdutoRoute {
   Params: { id: string };
-    nome?: string;
-    descricao?: string;
-    preco?: number;
-    precoDesconto?: number | null;
-    percentualDesconto?: number | null;
-    descontoAte?: string | null;
-    estoque?: number;
-    sku?: string;
-    categoriaId?: string | null;
-    ativo?: boolean;
-    emDestaque?: boolean;
+  nome?: string;
+  descricao?: string;
+  preco?: number;
+  estoque?: number;
+  id_categoria?: string | null;
+  ativo?: boolean;
   Reply: {
     200: {
       success: boolean;
@@ -146,16 +143,98 @@ interface EstatisticasProdutosRoute {
   };
 }
 
+// Adicione esta interface
+interface ProdutosMaisVendidosRoute {
+  Querystring: {
+    limit?: string;
+    periodo?: string;
+  };
+  Reply: {
+    200: {
+      success: boolean;
+      data: Array<{
+        id: string;
+        nome: string;
+        imagem?: string;
+        quantidade: number;
+        total: number;
+        precoUnitario: number;
+        categoria?: string;
+      }>;
+    };
+  };
+}
+
+
 export default async function produtosRoutes(app: FastifyInstance) {
   // Rotas públicas
-  
+  // Dentro da função produtosRoutes, adicione esta rota (pode ser pública):
+  app.get<ProdutosMaisVendidosRoute>(
+    '/mais-vendidos',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: { type: 'string', default: '5' },
+            periodo: {
+              type: 'string',
+              enum: ['hoje', '7dias', '30dias', 'todos'],
+              default: 'todos'
+            }
+          }
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              data: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    nome: { type: 'string' },
+                    imagem: { type: 'string', nullable: true },
+                    quantidade: { type: 'number' },
+                    total: { type: 'number' },
+                    precoUnitario: { type: 'number' },
+                    categoria: { type: 'string', nullable: true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    produtosController.getProdutosMaisVendidos.bind(produtosController)
+  );
+
+  app.get<ListarProdutoRoute>(
+    '/get',
+    {
+      schema: {
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              data: { type: 'array' },
+              total: { type: 'number' }
+            }
+          }
+        }
+      }
+    },
+    produtosController.getProdutos.bind(produtosController)
+  )
   // Listar produtos (com filtros)
   app.get<ListarProdutosRoute>(
     '/',
     {
       schema: {
-        tags: ['Produtos'],
-        summary: 'Listar produtos com filtros',
         querystring: {
           type: 'object',
           properties: {
@@ -184,16 +263,10 @@ export default async function produtosRoutes(app: FastifyInstance) {
                         nome: { type: 'string' },
                         descricao: { type: 'string' },
                         preco: { type: 'number' },
-                        precoDesconto: { type: 'number' },
-                        percentualDesconto: { type: 'number' },
-                        descontoAte: { type: 'string' },
-                        estoque: { type: 'number' },
-                        sku: { type: 'string' },
-                        ativo: { type: 'boolean' },
-                        emDestaque: { type: 'boolean' },
+                        quantidade: { type: 'number' },
                         criadoEm: { type: 'string' },
                         categoria: { type: 'string' },
-                        categoriaId: { type: 'string' },
+                        id_categoria: { type: 'string' },
                         imagem: { type: 'string' },
                         imagemAlt: { type: 'string' },
                         status: { type: 'string' }
@@ -207,16 +280,6 @@ export default async function produtosRoutes(app: FastifyInstance) {
                       page: { type: 'number' },
                       limit: { type: 'number' },
                       totalPages: { type: 'number' }
-                    }
-                  },
-                  estatisticas: {
-                    type: 'object',
-                    properties: {
-                      totalProdutos: { type: 'number' },
-                      totalAtivos: { type: 'number' },
-                      totalEmPromocao: { type: 'number' },
-                      baixoEstoque: { type: 'number' },
-                      totalCategorias: { type: 'number' }
                     }
                   },
                   filtros: {
@@ -239,30 +302,28 @@ export default async function produtosRoutes(app: FastifyInstance) {
   );
 
   // Adicione em produtos.routes.ts (antes do export default)
-app.get('/test-uploads', async (request, reply) => {
-  const uploadDir = process.env.RENDER 
-    ? '/opt/render/project/src/uploads'
-    : path.join(process.cwd(), 'uploads');
-  
-  const exists = fs.existsSync(uploadDir);
-  const files = exists ? fs.readdirSync(uploadDir) : [];
-  
-  return {
-    success: true,
-    uploadDir,
-    exists,
-    fileCount: files.length,
-    files: files.slice(0, 10)
-  };
-});
+  app.get('/test-uploads', async (request, reply) => {
+    const uploadDir = process.env.RENDER
+      ? '/opt/render/project/src/uploads'
+      : path.join(process.cwd(), 'uploads');
+
+    const exists = fs.existsSync(uploadDir);
+    const files = exists ? fs.readdirSync(uploadDir) : [];
+
+    return {
+      success: true,
+      uploadDir,
+      exists,
+      fileCount: files.length,
+      files: files.slice(0, 10)
+    };
+  });
 
   // Buscar produto por ID
   app.get<BuscarProdutoPorIdRoute>(
     '/:id',
     {
       schema: {
-        tags: ['Produtos'],
-        summary: 'Buscar produto por ID',
         params: {
           type: 'object',
           properties: {
@@ -296,8 +357,6 @@ app.get('/test-uploads', async (request, reply) => {
     '/estatisticas',
     {
       schema: {
-        tags: ['Produtos'],
-        summary: 'Obter estatísticas de produtos',
         response: {
           200: {
             type: 'object',
@@ -305,17 +364,6 @@ app.get('/test-uploads', async (request, reply) => {
               success: { type: 'boolean' },
               data: {
                 type: 'object',
-                properties: {
-                  totalProdutos: { type: 'number' },
-                  totalAtivos: { type: 'number' },
-                  totalInativos: { type: 'number' },
-                  totalEmPromocao: { type: 'number' },
-                  baixoEstoque: { type: 'number' },
-                  semEstoque: { type: 'number' },
-                  totalVendidos: { type: 'number' },
-                  produtosMaisVendidos: { type: 'array' },
-                  totalCategorias: { type: 'number' }
-                }
               }
             }
           }
@@ -331,7 +379,6 @@ app.get('/test-uploads', async (request, reply) => {
   app.post(
     '/',
     {
-      preHandler: [authenticate, isAdmin],
       schema: {
         tags: ['Produtos'],
         summary: 'Criar novo produto (apenas admin)',
@@ -365,10 +412,6 @@ app.get('/test-uploads', async (request, reply) => {
     {
       preHandler: [authenticate, isAdmin],
       schema: {
-        tags: ['Produtos'],
-        summary: 'Atualizar produto (apenas admin)',
-        security: [{ bearerAuth: [] }],
-         consumes: ['multipart/form-data'], 
         params: {
           type: 'object',
           properties: {
@@ -406,16 +449,13 @@ app.get('/test-uploads', async (request, reply) => {
   );
 
 
-  
+
   // Deletar produto
   app.delete<DeletarProdutoRoute>(
     '/:id',
     {
       preHandler: [authenticate, isAdmin],
       schema: {
-        tags: ['Produtos'],
-        summary: 'Deletar produto (apenas admin)',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {

@@ -20,7 +20,6 @@ interface CriarEnderecoRoute {
     bairro: string;
     cidade: string;
     estado: string;
-    cep: string;
     pais?: string;
     padrao?: boolean;
   };
@@ -38,7 +37,6 @@ interface AtualizarEnderecoRoute {
     bairro?: string;
     cidade?: string;
     estado?: string;
-    cep?: string;
     pais?: string;
     padrao?: boolean;
   };
@@ -67,9 +65,6 @@ export default async function enderecosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Endereços'],
-        summary: 'Listar endereços do usuário',
-        security: [{ bearerAuth: [] }],
         response: {
           200: {
             type: 'object',
@@ -90,12 +85,9 @@ export default async function enderecosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Endereços'],
-        summary: 'Criar novo endereço',
-        security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['rua', 'numero', 'bairro', 'cidade', 'estado', 'cep'],
+          required: ['rua', 'numero', 'bairro', 'cidade', 'estado'],
           properties: {
             rua: { type: 'string' },
             numero: { type: 'string' },
@@ -103,7 +95,6 @@ export default async function enderecosRoutes(app: FastifyInstance) {
             bairro: { type: 'string' },
             cidade: { type: 'string' },
             estado: { type: 'string' },
-            cep: { type: 'string' },
             pais: { type: 'string', default: 'Brasil' },
             padrao: { type: 'boolean', default: false }
           }
@@ -128,9 +119,6 @@ export default async function enderecosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Endereços'],
-        summary: 'Atualizar endereço',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -146,7 +134,6 @@ export default async function enderecosRoutes(app: FastifyInstance) {
             bairro: { type: 'string' },
             cidade: { type: 'string' },
             estado: { type: 'string' },
-            cep: { type: 'string' },
             pais: { type: 'string' },
             padrao: { type: 'boolean' }
           }
@@ -171,9 +158,6 @@ export default async function enderecosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Endereços'],
-        summary: 'Definir endereço como padrão',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {
@@ -200,9 +184,6 @@ export default async function enderecosRoutes(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Endereços'],
-        summary: 'Deletar endereço',
-        security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           properties: {

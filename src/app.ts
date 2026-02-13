@@ -1,9 +1,7 @@
-// src/app.ts
+// src/app.ts FIXED - com autenticação corrigida
 import Fastify from "fastify";
 import jwt from "@fastify/jwt";
-import multipart from "@fastify/multipart";
-import swagger from "@fastify/swagger";
-import swaggerUI from "@fastify/swagger-ui";
+import multipart, { MultipartFile } from "@fastify/multipart";
 import * as dotenv from 'dotenv';
 
 import authRoutes from "./modules/auth/auth.routes";
@@ -12,6 +10,11 @@ import vendasRoutes from "./modules/vendas/vendas.routes";
 import produtosRoutes from "./modules/produtos/produtos.routes";
 import pedidosRoutes from "./modules/pedidos/pedidos.routes";
 import categoriasRoutes from "./modules/categorias/categorias.routes";
+import pagamentosRoutes from "./modules/pagamentos/pagamentos.routes";
+import enderecosRoutes from "./modules/enderecos/enderecos.routes";
+import avaliacoesRoutes from "./modules/avaliacoes/avaliacoes.routes";
+import carrinhoRoutes from "./modules/carrinho/carrinho.routes";
+import itemcarrinhoRoutes from "./modules/itemcarrinho/itemcarrinho.route";
 
 dotenv.config();
 
@@ -20,32 +23,27 @@ if (!process.env.JWT_SECRET) {
     process.exit(1);
 }
 
-// Configurar logger
-const loggerConfig = process.env.NODE_ENV === 'production'
-    ? true
-    : {
-        transport: {
-            target: 'pino-pretty',
-            options: {
-                translateTime: 'HH:MM:ss Z',
-                ignore: 'pid,hostname'
-            }
+const loggerConfig = process.env.NODE_ENV === 'production' ? true : {
+    level: 'info',
+    transport: {
+        target: 'pino-pretty',
+        options: {
+            translateTime: 'HH:MM:ss Z',
+            ignore: 'pid,hostname'
         }
-    };
+    }
+};
 
 const app = Fastify({
     logger: loggerConfig,
-    // Aumentar limites do body
-    bodyLimit: 10 * 1024 * 1024, // 10MB
-    // Aumentar tempo de conexão
-    connectionTimeout: 120000, // 2 minutos
+    bodyLimit: 20 * 1024 * 1024,
+    connectionTimeout: 60000,
+    keepAliveTimeout: 60000,
+    maxParamLength: 500,
+    disableRequestLogging: false,
 });
 
-// ============================================
-// CORS MANUAL - SOLUÇÃO DEFINITIVA
-// ============================================
-
-// Lista de origens permitidas
+// CORS MANUAL
 const allowedOrigins = [
     'https://sufficius-ecommerce.vercel.app',
     'http://localhost:5173',
@@ -54,155 +52,222 @@ const allowedOrigins = [
     'https://sufficius-ecommerce-back.onrender.com'
 ];
 
-// Hook para todas as requisições
 app.addHook('onRequest', (request, reply, done) => {
     const origin = request.headers.origin;
-
-    // Se for preflight (OPTIONS), responder imediatamente
     if (request.method === 'OPTIONS') {
-        // Permitir qualquer origem durante o desenvolvimento
         if (origin && allowedOrigins.includes(origin)) {
             reply.header('Access-Control-Allow-Origin', origin);
             reply.header('Access-Control-Allow-Credentials', 'true');
-        } else {
-            // Em produção, seja mais restritivo
-            if (process.env.NODE_ENV === 'development') {
-                reply.header('Access-Control-Allow-Origin', origin || '*');
-            } else if (origin) {
-                reply.header('Access-Control-Allow-Origin', origin);
-            }
+        } else if (process.env.NODE_ENV === 'development') {
+            reply.header('Access-Control-Allow-Origin', origin || '*');
         }
-
         reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-        reply.header('Access-Control-Allow-Headers',
-            'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Access-Token, X-API-Key, Content-Type, Authorization');
+        reply.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Access-Token, X-API-Key, Content-Type, Authorization');
         reply.header('Access-Control-Allow-Credentials', 'true');
-        reply.header('Access-Control-Max-Age', '86400'); // 24 horas
-
+        reply.header('Access-Control-Max-Age', '86400');
         reply.status(204).send();
         return;
     }
-
-    // Para requisições normais
     if (origin && allowedOrigins.includes(origin)) {
         reply.header('Access-Control-Allow-Origin', origin);
         reply.header('Access-Control-Allow-Credentials', 'true');
     } else if (origin && process.env.NODE_ENV === 'development') {
-        // Permite qualquer origem em desenvolvimento
         reply.header('Access-Control-Allow-Origin', origin);
-    } else if (origin) {
-        console.log(`🚫 Origem bloqueada: ${origin}`);
-        // Não adiciona o header CORS para origens não permitidas
     }
-
     done();
 });
 
-// Hook para respostas (garantir headers em todas as respostas)
 app.addHook('onSend', (request, reply, payload, done) => {
     const origin = request.headers.origin;
-
-    // Garantir que os headers CORS estão presentes em todas as respostas
     if (origin && allowedOrigins.includes(origin)) {
         reply.header('Access-Control-Allow-Origin', origin);
         reply.header('Access-Control-Allow-Credentials', 'true');
     } else if (origin && process.env.NODE_ENV === 'development') {
         reply.header('Access-Control-Allow-Origin', origin);
     }
-
-    // Headers adicionais de segurança
     reply.header('Access-Control-Expose-Headers', 'Content-Length, X-Total-Count, Authorization');
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');
     reply.header('X-XSS-Protection', '1; mode=block');
-
     done();
 });
 
-// ============================================
-// FIM DO CORS MANUAL
-// ============================================
-
-// Registrar plugins
+// JWT
 app.register(jwt, {
-    secret: process.env.JWT_SECRET
+    secret: process.env.JWT_SECRET,
+    sign: { expiresIn: '7d' }
 });
 
-// CONFIGURAÇÃO MULTIPART OTIMIZADA PARA UPLOAD DE IMAGENS
+// Multipart (simplificado)
 app.register(multipart, {
     limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB
-        files: 5,
-        headerPairs: 2000 // Aumentar limite de headers
+        fileSize: 50 * 1024 * 1024,
+        files: 5
     },
-    attachFieldsToBody: 'keyValues', 
-    sharedSchemaId: '#mySharedSchema',
-    // Callback para monitorar upload de arquivos
-    onFile: (part) => {
-        console.log(`📁 Processando arquivo: ${part.filename} (${part.mimetype})`);
-    }
+    attachFieldsToBody: false,
 });
 
-// // Configurar content type parser para multipart
-// app.addContentTypeParser('multipart/form-data', { 
-//     parseAs: 'buffer',
-//     bodyLimit: 10 * 1024 * 1024 // 10MB
-// }, (req, body, done) => {
-//     done(null, body);
-// });
+// Tipagem para o request com autenticação
+declare module 'fastify' {
+  interface FastifyRequest {
+    usuario?: {
+      id: string;
+      email: string;
+      tipo: string;
+      fotoUrl?:string;
+    };
+  }
+}
 
-// app.register(fastifyStatic, {
-//     root: path.join(process.cwd(), 'uploads'),
-//     prefix: '/uploads/',
-//     decorateReply: false,
+// Hook de autenticação
+app.addHook('onRequest', async (request, reply) => {
+  try {
+    // Rotas públicas que não precisam de autenticação
+    const publicRoutes = [
+    {method: 'POST', path: '/usuarios/login'},
+      {method: 'POST', path: '/auth/login'},
+      {method: 'POST', path: '/auth/register'},
+      {method: 'POST', path: '/auth/google'},
+      {method: 'GET', path: '/health'},
+      {method: 'GET', path: '/'},
+      {method: 'GET', path: '/produtos'},
+      {method: 'GET', path: '/pedidos'},
+      {method: 'GET', path: '/produtos/:id'},
+      {method: 'GET', path: '/debug'},
+    ];
+    
+    // Verificar se a rota atual é pública
+    const isPublicRoute = publicRoutes.some(route => 
+      request.url === route.path && request.method === route.method
+    );
+    
+    if (isPublicRoute) {
+      return;
+    }
 
-//     serve:true,
-//     preCompressed:false,
+    
+    const authHeader = request.headers.authorization;
+    
+    if (!authHeader) {
+      reply.status(401).send({
+        success: false,
+        error: 'Token não fornecido'
+      });
+      return;
+    }
 
-//     setHeaders: (res, path) => {
-//         res.setHeader('access-control-allow-origin', '*');
-//         res.setHeader('cache-control', 'public, max=86400');
-//         res.setHeader('cross-origin-resource-policy', 'cross-origin');
-//     },
-//     list: process.env.NODE_ENV === 'development',
-//     redirect: false
-// });
+    if (!authHeader.startsWith('Bearer ')) {
+      reply.status(401).send({
+        success: false,
+        error: 'Formato do token inválido. Use "Bearer <token>"'
+      });
+      return;
+    }
 
-// Swagger/OpenAPI
-app.register(swagger, {
-    swagger: {
-        info: {
-            title: 'Sufficius API',
-            description: 'API para a Sufficius E-commerce',
-            version: process.env.API_VERSION || '1.0.0'
-        },
-        host: process.env.NODE_ENV === 'production'
-            ? 'sufficius-ecommerce-back.onrender.com'
-            : `localhost:${process.env.PORT || 3000}`,
-        schemes: process.env.NODE_ENV === 'production' ? ['https'] : ['http', 'https'],
-        consumes: ['application/json', 'multipart/form-data'], // Adicionado multipart
-        produces: ['application/json'],
-        securityDefinitions: {
-            bearerAuth: {
-                type: 'apiKey',
-                name: 'Authorization',
-                in: 'header',
-                description: 'Insira o token JWT no formato: Bearer {token}'
-            }
+    const token = authHeader.replace('Bearer ', '');
+
+     if (!token) {
+            reply.code(401).send({
+                success: false,
+                message: 'Token inválido'
+            });
+            return;
         }
+    
+      try {
+      // Verificar token JWT (jwtVerify lê o header Authorization automaticamente)
+      const decoded = await request.jwtVerify<{ id: string; email: string; tipo: string, fotoUrl: string }>(token as any);
+      
+      // Adicionar informações do usuário ao request
+      request.usuario = {
+        id: decoded.id,
+        email: decoded.email,
+        tipo: decoded.tipo,
+        fotoUrl: decoded.fotoUrl
+      };
+
+      console.log('✅ Usuário autenticado:', {
+        id: decoded.id,
+        email: decoded.email,
+        fotoUrl:decoded.fotoUrl
+        // tipo: decoded.tipo
+      });
+
+    } catch (jwtError: any) {
+      reply.status(401).send({
+        success: false,
+        error: 'Token inválido ou expirado'
+      });
     }
+
+  } catch (error: any) {
+    reply.status(500).send({
+      success: false,
+      error: 'Erro interno na autenticação'
+    });
+  }
 });
 
-app.register(swaggerUI, {
-    routePrefix: "/docs",
-    uiConfig: {
-        docExpansion: 'list',
-        deepLinking: true
-    },
-    staticCSP: true,
-    transformSpecification: (swaggerObject) => {
-        return swaggerObject;
+// Rotas básicas
+app.get('/health', async () => ({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    service: 'Sufficius API'
+}));
+
+app.get('/', async () => ({
+    message: 'Sufficius API está rodando!',
+    endpoints: {
+        auth: '/auth',
+        produtos: '/produtos',
+        pedidos: '/pedidos',
+        carrinho: '/carrinho',
+        enderecos: '/enderecos'
     }
+}));
+
+// Rota de debug para verificar autenticação
+app.get('/debug/auth', async (request, reply) => {
+  try {
+    const authHeader = request.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return reply.send({ 
+        success: false, 
+        error: 'Token não fornecido',
+        headers: request.headers
+      });
+    }
+
+    const token = authHeader.substring(7);    
+    try {
+      const decoded = await request.jwtVerify<{ id: string; email: string; tipo: string; fotoUrl:string }>();
+      
+      return reply.send({
+        success: true,
+        decodedToken: decoded,
+        requestUsuario: request.usuario,
+        headers: {
+          authorization: request.headers.authorization?.substring(0, 50) + '...',
+          origin: request.headers.origin
+        }
+      });
+    } catch (jwtError) {
+      const details = jwtError instanceof Error ? jwtError.message : String(jwtError);
+      return reply.send({ 
+        success: false, 
+        error: 'Token inválido',
+        details
+      });
+    }
+    
+  } catch (error: any) {
+    return reply.send({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // Registrar rotas principais
@@ -212,90 +277,21 @@ app.register(vendasRoutes, { prefix: `/vendas` });
 app.register(produtosRoutes, { prefix: '/produtos' });
 app.register(pedidosRoutes, { prefix: `/pedidos` });
 app.register(categoriasRoutes, { prefix: `/categorias` });
+app.register(pagamentosRoutes, { prefix: `/pagamentos` });
+app.register(enderecosRoutes, { prefix: `/enderecos` });
+app.register(avaliacoesRoutes, { prefix: `/avaliacoes` });
+app.register(carrinhoRoutes, { prefix: `/carrinho` });
+app.register(itemcarrinhoRoutes, {prefix: `/itemcarrinho`})
 
-// Rotas básicas
-app.get('/health', async () => ({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    version: process.env.API_VERSION || '1.0.0',
-    service: 'Sufficius API',
-    corsConfigured: true
-}));
 
-app.get('/', async () => ({
-    message: 'Sufficius API está rodando!',
-    version: process.env.API_VERSION || '1.0.0',
-    environment: process.env.NODE_ENV || 'development',
-    docs: '/docs',
-    health: '/health',
-    cors: 'CORS manual configurado'
-}));
-
-// Error handler global
-app.setErrorHandler(function (error, request, reply) {
-    console.error('🔥 Error handler:', error);
-
-    // Adicionar headers CORS mesmo em erros
-    const origin = request.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-        reply.header('Access-Control-Allow-Origin', origin);
-        reply.header('Access-Control-Allow-Credentials', 'true');
-    }
-
-    if (error.validation) {
-        return reply.status(400).send({
-            success: false,
-            error: 'Erro de validação',
-            details: error.validation
-        });
-    }
-
-    // Erro específico de timeout
-    if (error.code === 'FST_ERR_CTP_INVALID_CONTENT_LENGTH' || 
-        error.message?.includes('timeout')) {
-        return reply.status(408).send({
-            success: false,
-            error: 'Tempo limite excedido',
-            message: 'O upload está demorando muito. Tente com uma imagem menor ou verifique sua conexão.'
-        });
-    }
-
+// Error handler simplificado
+app.setErrorHandler(function (error: any, request, reply) {
+    console.error('❌ Error:', error);
     return reply.status(500).send({
         success: false,
         error: 'Erro interno do servidor',
-        message: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Contate o administrador'
     });
-});
-
-// Not found handler
-app.setNotFoundHandler(function (request, reply) {
-    // Adicionar headers CORS mesmo em 404
-    const origin = request.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-        reply.header('Access-Control-Allow-Origin', origin);
-        reply.header('Access-Control-Allow-Credentials', 'true');
-    }
-
-    reply.status(404).send({
-        success: false,
-        error: 'Rota não encontrada',
-        path: request.url,
-    });
-});
-
-// Hook para debug de requisições multipart
-app.addHook('preValidation', async (request, reply) => {
-    const contentType = request.headers['content-type'] || '';
-    
-    if (contentType.includes('multipart/form-data')) {
-        const contentLength = request.headers['content-length'];
-        console.log(`🔄 Recebendo multipart: ${request.method} ${request.url}`);
-        if (contentLength) {
-            const sizeMB = (parseInt(contentLength) / (1024 * 1024)).toFixed(2);
-            console.log(`   📊 Tamanho: ${sizeMB}MB`);
-        }
-    }
 });
 
 export default app;
