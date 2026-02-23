@@ -7,7 +7,6 @@ export class CarrinhoController {
   async obterCarrinho(request: FastifyRequest, reply: FastifyReply) {
     try {
       const usuario = request.user as any;
-      console.log(`🔍 Buscando carrinho para usuário: ${usuario.id}`);
 
       // Buscar carrinho
       const carrinho = await prisma.carrinho.findFirst({
@@ -20,6 +19,7 @@ export class CarrinhoController {
                   id: true,
                   nome: true,
                   preco: true,
+                  foto:true,
                   quantidade: true,
                   ImagemProduto: {
                     where: { principal: true },
@@ -50,6 +50,7 @@ export class CarrinhoController {
                     nome: true,
                     preco: true,
                     quantidade: true,
+                    foto:true,
                     ImagemProduto: {
                       where: { principal: true },
                       take: 1
@@ -79,18 +80,17 @@ export class CarrinhoController {
             produtoId: item.produtoId,
             quantidade: item.quantidade,
             preco: item.produto?.preco ? item.produto?.preco : 0,
-            subtotal: (item.produto?.preco ? item.produto?.preco : 0) * item.quantidade,
             produto: {
               id: item.produto?.id,
               nome: item.produto?.nome,
               preco: item.produto?.preco,
+              foto:item.produto?.foto,
               quantidadeEstoque: item.produto?.quantidade,
               imagem: item.produto?.ImagemProduto?.[0]?.url,
               imagemAlt: item.produto?.ImagemProduto?.[0]?.ordem
             }
           })),
           totalItens,
-          subtotal: valorTotal,
           desconto: 0,
           total: valorTotal
         };
@@ -125,12 +125,12 @@ export class CarrinhoController {
             nome: item.produto?.nome,
             preco: item.produto?.preco,
             quantidadeEstoque: item.produto?.quantidade,
+            foto: item.produto?.foto,
             imagem: item.produto?.ImagemProduto?.[0]?.url,
             imagemAlt: item.produto?.ImagemProduto?.[0]?.ordem
           }
         })),
         totalItens,
-        subtotal: valorTotal,
         desconto: 0,
         total: valorTotal
       };
@@ -162,7 +162,6 @@ export class CarrinhoController {
       const usuario = request.user as any;
       const { userId, produtoId, quantidade } = request.body;
 
-      console.log(`➕ Adicionando produto  ${produtoId} (quantidade: ${quantidade}) ao carrinho do usuário ${usuario.id}`);
 
       if (!userId) {
         return reply.status(400).send({
@@ -221,7 +220,6 @@ export class CarrinhoController {
       });
 
       if (!carrinho) {
-        console.log('🆕 Criando novo carrinho para adicionar item');
         carrinho = await prisma.carrinho.create({
           data: {
             id: randomUUID(),
@@ -241,7 +239,6 @@ export class CarrinhoController {
       let itemAtualizado;
 
       if (itemExistente) {
-        console.log(`📝 Item já existe no carrinho (ID: ${itemExistente.id}), atualizando quantidade`);
         // Atualizar quantidade
         itemAtualizado = await prisma.itemCarrinho.update({
           where: { id: itemExistente.id },
@@ -250,7 +247,6 @@ export class CarrinhoController {
           }
         });
       } else {
-        console.log('✨ Criando novo item no carrinho');
         // Adicionar novo item
         itemAtualizado = await prisma.itemCarrinho.create({
           data: {
@@ -285,14 +281,8 @@ export class CarrinhoController {
         }
       });
 
-      console.log('🔍 Carrinho atualizado encontrado:', carrinhoAtualizado ? 'Sim' : 'Não');
 
-      if (carrinhoAtualizado) {
-        console.log('📦 ID do carrinho:', carrinhoAtualizado.id);
-        console.log('🛒 Quantidade de itens no carrinho:', carrinhoAtualizado.ItemCarrinho.length);
-        console.log('📋 Itens no carrinho:', carrinhoAtualizado.ItemCarrinho);
-      }
-
+  
       if (!carrinhoAtualizado) {
         throw new Error('Carrinho não encontrado após adicionar item');
       }
@@ -330,24 +320,10 @@ export class CarrinhoController {
           }
         }),
         totalItens,
-        subtotal: valorTotal,
         desconto: 0,
         total: valorTotal
       }
-      console.log('📤 Resposta formatada que será enviada:', JSON.stringify(respostaFormatada, null, 2));
-
-      console.log('📊 Estrutura da resposta:', {
-        temId: !!respostaFormatada.id,
-        temUsuarioId: !!respostaFormatada.usuarioId,
-        temItens: Array.isArray(respostaFormatada.itens),
-        quantidadeItens: respostaFormatada.itens.length,
-        totalItens: respostaFormatada.totalItens,
-        subtotal: respostaFormatada.subtotal,
-        total: respostaFormatada.total
-      });
-
-      console.log(`✅ Item adicionado com sucesso. Total no carrinho: ${totalItens} itens, KZ ${valorTotal}`);
-
+   
       return reply.send({
         success: true,
         message: 'Item adicionado ao carrinho',
@@ -373,8 +349,6 @@ export class CarrinhoController {
       const usuario = request.user as any;
       const { id, produtoId } = request.params;
       const { quantidade } = request.body;
-
-      console.log(`✏️ Atualizando ${id} produto ${produtoId} para quantidade: ${quantidade}`);
 
       if (!id) {
         return reply.status(400).send({
@@ -404,7 +378,6 @@ export class CarrinhoController {
          }
       });
 
-      console.log("Carrinho: ", carrinho);
 
       if (!carrinho) {
         return reply.status(404).send({
@@ -430,7 +403,6 @@ export class CarrinhoController {
         }
       });
 
-      console.log("Itens do carrinho: ",item);
 
       if (!item) {
         return reply.status(404).send({
@@ -445,7 +417,6 @@ export class CarrinhoController {
           where: { id: item.id }
         });
 
-        console.log(`🗑️ Item ${produtoId} removido do carrinho`);
       } else {
         // Verificar estoque
         if (item.quantidade < quantidade) {
@@ -461,7 +432,6 @@ export class CarrinhoController {
           data: { quantidade }
         });
 
-        console.log(`✅ Item ${produtoId} atualizado para quantidade: ${quantidade}`);
       }
 
       // Buscar carrinho atualizado
@@ -519,7 +489,6 @@ export class CarrinhoController {
           }
         })),
         totalItens,
-        subtotal: valorTotal,
         desconto: 0,
         total: valorTotal
       };
@@ -542,7 +511,6 @@ export class CarrinhoController {
 
   async countItemsOnCart(request: FastifyRequest, reply: FastifyReply) {
     const { userId } = request.params as any;
-    console.log(`🗑️ Contando produtos do usuário ${userId}`);
 
     const cart = await prisma.carrinho.findFirst({
       where: { usuarioId: userId },
@@ -564,8 +532,6 @@ export class CarrinhoController {
     try {
       const usuario = request.user as any;
       const { produtoId } = request.params;
-
-      console.log(`🗑️ Removendo produto ${produtoId} do carrinho`);
 
       if (!produtoId) {
         return reply.status(400).send({
@@ -605,8 +571,6 @@ export class CarrinhoController {
       await prisma.itemCarrinho.delete({
         where: { id: item.id }
       });
-
-      console.log(`✅ Item ${produtoId} removido do carrinho`);
 
       // Buscar carrinho atualizado
       const carrinhoAtualizado = await prisma.carrinho.findFirst({
@@ -663,7 +627,6 @@ export class CarrinhoController {
           }
         })),
         totalItens,
-        subtotal: valorTotal,
         desconto: 0,
         total: valorTotal
       };
@@ -685,7 +648,6 @@ export class CarrinhoController {
   async limparCarrinho(request: FastifyRequest, reply: FastifyReply) {
     try {
       const usuario = request.user as any;
-      console.log(`🧹 Limpando carrinho do usuário ${usuario.id}`);
 
       // Buscar carrinho
       const carrinho = await prisma.carrinho.findFirst({
@@ -704,7 +666,6 @@ export class CarrinhoController {
         where: { carrinhoId: carrinho.id }
       });
 
-      console.log(`✅ Carrinho limpo com sucesso`);
 
       // Retornar carrinho vazio
       const respostaFormatada = {
@@ -714,7 +675,6 @@ export class CarrinhoController {
         atualizadoEm: new Date().toISOString(),
         itens: [],
         totalItens: 0,
-        subtotal: 0,
         desconto: 0,
         total: 0
       };
@@ -752,8 +712,6 @@ export class CarrinhoController {
           produtoId: produtoId,
         },
       });
-
-      console.log("Itens do Carrinho: ", cartItem);
 
       if (!cartItem) {
         return reply.code(404).send({ message: "Produto não encontrado no carrinho" });

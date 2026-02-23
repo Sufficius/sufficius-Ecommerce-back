@@ -4,9 +4,10 @@ import { CarrinhoController } from './carrinho.controller';
 import { authenticate } from '../../middleware/auth.middleware';
 import { prisma } from '../../lib/prisma';
 import { randomUUID } from 'crypto';
-import { MultipartBody } from '@/types/multipart';
+import { MultipartBody } from '../types/multipart';
 import { getFieldsAndFiles } from '../helpers/multipart';
-import z, { ZodType } from 'zod';
+import z from 'zod';
+import { supabase } from '../../lib/supabase';
 
 const carrinhoController = new CarrinhoController();
 
@@ -58,7 +59,7 @@ interface AdicionarItemRoute {
 interface AtualizarItemRoute {
   Params: {
     id: string;
-    produtoId: string; // Mudado de itemId para produtoId
+    produtoId: string;
   };
   Body: {
     quantidade: number;
@@ -90,7 +91,7 @@ interface AtualizarItemRoute {
 
 interface RemoverItemRoute {
   Params: {
-    produtoId: string; // Mudado de itemId para produtoId
+    produtoId: string;
   };
   Reply: {
     200: {
@@ -192,7 +193,6 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
                   atualizadoEm: { type: 'string' },
                   itens: { type: 'array' },
                   totalItens: { type: 'number' },
-                  subtotal: { type: 'number' },
                   desconto: { type: 'number' },
                   total: { type: 'number' }
                 }
@@ -212,121 +212,294 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
     carrinhoController.obterCarrinho.bind(carrinhoController)
   );
 
+  // Schemas de validação
   const CheckoutFieldsSchema = z.object({
-    userId: z.string().nonempty("O campo 'userId' é obrigatório."),
-    location: z.string().nonempty("O campo 'location' é obrigatório."),
-    phone: z.string().nonempty("O campo 'phone_number' é obrigatório."),
+    userId: z.string().min(1, "O campo 'userId' é obrigatório."),
+    location: z.string().min(1, "O campo 'location' é obrigatório."),
+    phone: z.string().min(1, "O campo 'phone' é obrigatório."),
   });
 
+  // Schema mais flexível para o arquivo - CORRIGIDO
   const FileSchema = z.object({
-    comprovativo: z.object({
-      type: z.literal("file"),
-      fieldname: z.literal("comprovativo"),
-      filename: z.string().nonempty(),
-      encoding: z.string().nonempty(),
-      mimetype: z.string().nonempty(),
-      file: z.any(),
-      _buf: z.any(),
-    }),
-
+    paymentProof: z.object({
+      filename: z.string().optional().default('arquivo.pdf'),
+      mimetype: z.string().optional().default('application/octet-stream'),
+      _buf: z.any().refine(val => val !== undefined && val !== null, {
+        message: "Buffer do arquivo é obrigatório"
+      }),
+      fieldname: z.string().optional(),
+      encoding: z.string().optional(),
+      type: z.string().optional(),
+    }).passthrough() // Permite propriedades extras
   });
-
 
   const normalizeFileName = (fileName: string): string => {
+    if (!fileName) return `file_${Date.now()}`;
+    
     return fileName
-      .normalize("NFD") // Normaliza caracteres acentuados
-      .replace(/[\u0300-\u036f]/g, "") // Remove marcas de acentuação
-      .replace(/[^a-zA-Z0-9._-]/g, "_"); // Substitui caracteres especiais por "_"
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
   };
 
-
+  // ROTA DE CHECKOUT CORRIGIDA
   app.post('/checkout', async (request, reply) => {
-    const body = request.body as MultipartBody || null;
-    const { fields, files } = await getFieldsAndFiles(body);
-    const checkoutFields = CheckoutFieldsSchema.parse(fields ?? "");
-    const userId = checkoutFields.userId;
-    if (!files.comprovativo) {
-      return reply.status(400).send({ message: "É necessário passar o comprovativo!" });
-    }
-
-    const fileData = FileSchema.parse({ comprovativo: files.comprovativo });
-    const originalFileName = fileData.comprovativo.filename;
-    const normalizedFileName = normalizeFileName(originalFileName);
-    const fileName = `${Date.now()}_${normalizedFileName}`;
-    const mimetypeData = fileData.comprovativo.mimetype;
-    const fileBuffer = fileData.comprovativo._buf;
-
-    if (!fileBuffer || !(fileBuffer instanceof Buffer)) {
-      return reply.status(400).send({ error: "Arquivo inválido ou não é um buffer" });
-    }
-
-    const cart = await prisma.carrinho.findFirst({
-      where: { usuarioId: userId },
-      include: { ItemCarrinho: { include: { produto: true } } }
-    });
-
-    if (!cart || cart.ItemCarrinho.length === 0) {
-      return reply.code(400).send({ message: "Carrinho vazio ou não encontrado" });
-    }
-
-    for (const item of cart.ItemCarrinho) {
-      if (item.quantidade > item.produto.quantidade) {
-        return reply.code(400).send({
-          message: `Quantidade insuficiente para o produto ${item.produto.nome}`
+    try {
+      // VERIFICAÇÃO 1: Body existe?
+      if (!request.body) {
+        console.log('❌ Body não recebido');
+        return reply.status(400).send({ 
+          success: false,
+          message: "Nenhum dado recebido" 
         });
       }
-    }
 
-    try {
-      // Executa as operações em uma transação
-      const orders = await prisma.$transaction(async (tx) => {
-        const createdOrders = [];
+      console.log('📦 Body recebido:', request.body);
+      console.log('📋 Content-Type:', request.headers['content-type']);
 
-        // Agrupa os itens do carrinho por business_id do produto
-        const ordersMap = new Map<string, Array<typeof cart.ItemCarrinho[0]>>();
-        for (const item of cart.ItemCarrinho) {
-          const businessId = item.produto.id;
-          if (!ordersMap.has(businessId)) {
-            ordersMap.set(businessId, []);
-          }
-          ordersMap.get(businessId)?.push(item);
-        }
-        for (const [businessId, items] of ordersMap.entries()) {
-          const orderItemsData = items.map(item => ({
-            product_id: item.produtoId,
-            quantity: item.quantidade,
-            price_at_time: item.produto.preco,
-            product_name: item.produto.nome,
-          }));
+      const body = request.body as MultipartBody;
 
-          const total = items.reduce((acc, item) => acc + (item.quantidade * item.produto.preco), 0);
-          const commission = total * 0.05;
+      // VERIFICAÇÃO 2: Processar multipart com segurança
+      let fields = {};
+      let files = {};
 
-          const order = await tx.pagamento.create({
-            data: {
-              usuarioId: userId,
-              pedidoId: businessId,
-              valor: total,
-              metodo: "DINHEIRO_ENTREGA"
-            },
-            include: { pedido: true }
+      try {
+        const resultado = await getFieldsAndFiles(body);
+        fields = resultado.fields || {};
+        files = resultado.files || {};
+        
+        console.log('✅ Campos extraídos:', fields);
+        console.log('✅ Arquivos extraídos:', Object.keys(files));
+        
+        // Log detalhado do arquivo
+        if ((files as any).paymentProof) {
+          console.log('📎 Detalhes do paymentProof:', {
+            filename: (files as any).paymentProof.filename,
+            mimetype: (files as any).paymentProof.mimetype,
+            temBuffer: !!((files as any).paymentProof._buf),
+            tamanho: (files as any).paymentProof.tamanho || 'desconhecido'
           });
-          createdOrders.push(order);
         }
+        
+      } catch (multipartError) {
+        console.error('❌ Erro ao processar multipart:', multipartError);
+        return reply.status(400).send({
+          success: false,
+          message: "Erro ao processar dados do formulário",
+          error: multipartError instanceof Error ? multipartError.message : String(multipartError)
+        });
+      }
 
-        await tx.carrinho.delete({
-          where: { id: cart.id }
+      // VERIFICAÇÃO 3: Campos obrigatórios existem?
+      if (!fields || Object.keys(fields).length === 0) {
+        return reply.status(400).send({ 
+          success: false,
+          message: "Nenhum campo recebido no formulário" 
+        });
+      }
+
+      // VERIFICAÇÃO 4: Validar campos com Zod
+      let checkoutFields;
+      try {
+        checkoutFields = CheckoutFieldsSchema.parse(fields);
+        console.log('✅ Validação dos campos passou:', checkoutFields);
+      } catch (validationError) {
+        console.error('❌ Erro de validação dos campos:', validationError);
+        if (validationError instanceof z.ZodError) {
+          return reply.status(400).send({
+            success: false,
+            message: "Erro de validação nos campos",
+            errors: validationError.errors
+          });
+        }
+        throw validationError;
+      }
+
+      const userId = checkoutFields.userId;
+
+      // VERIFICAÇÃO 5: Arquivo paymentProof existe? (CORRIGIDO: paymentProof)
+      const paymentProofFile = (files as any).paymentProof;
+      if (!paymentProofFile) {
+        return reply.status(400).send({ 
+          success: false,
+          message: "É necessário enviar o comprovativo! (campo 'paymentProof')" 
+        });
+      }
+
+      // VERIFICAÇÃO 6: Validar estrutura do arquivo com Zod (CORRIGIDO)
+      let fileData;
+      try {
+        fileData = FileSchema.parse({ paymentProof: paymentProofFile });
+        console.log('✅ Validação do arquivo passou');
+      } catch (validationError) {
+        console.error('❌ Erro de validação do arquivo:', validationError);
+        if (validationError instanceof z.ZodError) {
+          return reply.status(400).send({
+            success: false,
+            message: "Arquivo inválido",
+            errors: validationError.errors
+          });
+        }
+        throw validationError;
+      }
+
+      const originalFileName = fileData.paymentProof.filename || 'arquivo';
+      const normalizedFileName = normalizeFileName(originalFileName);
+      const fileName = `${Date.now()}_${normalizedFileName}`;
+      const mimetypeData = fileData.paymentProof.mimetype || 'application/octet-stream';
+      const fileBuffer = fileData.paymentProof._buf;
+
+      // VERIFICAÇÃO 7: Buffer do arquivo existe?
+      if (!fileBuffer) {
+        return reply.status(400).send({ 
+          success: false,
+          message: "Arquivo inválido - buffer não encontrado" 
+        });
+      }
+
+      if (!(fileBuffer instanceof Buffer)) {
+        return reply.status(400).send({ 
+          success: false,
+          message: "Arquivo inválido - não é um buffer válido" 
+        });
+      }
+
+      // VERIFICAÇÃO 8: Upload para Supabase
+      console.log('📤 Fazendo upload para Supabase...');
+      const { error: uploadError, data: uploadData } = await supabase.storage
+        .from('sufficius-files')
+        .upload(`comprovativos/${fileName}`, fileBuffer, {
+          contentType: mimetypeData,
+          cacheControl: '3600',
+          upsert: false
         });
 
-        return createdOrders;
+      if (uploadError) {
+        console.error("❌ Erro ao enviar para Supabase:", uploadError);
+        return reply.status(500).send({ 
+          success: false,
+          error: uploadError.message 
+        });
+      }
+
+      console.log('✅ Upload realizado com sucesso:', uploadData);
+
+      // VERIFICAÇÃO 9: Buscar carrinho do usuário
+      const cart = await prisma.carrinho.findFirst({
+        where: { usuarioId: userId },
+        include: { 
+          ItemCarrinho: { 
+            include: { 
+              produto: true 
+            } 
+          } 
+        }
       });
 
-      reply.send({
-        message: "Compra finalizada com sucesso",
-        orders
+      if (!cart) {
+        return reply.status(400).send({ 
+          success: false,
+          message: "Carrinho não encontrado" 
+        });
+      }
+
+      if (cart.ItemCarrinho.length === 0) {
+        return reply.status(400).send({ 
+          success: false,
+          message: "Carrinho vazio" 
+        });
+      }
+
+      // VERIFICAÇÃO 10: Verificar estoque
+      for (const item of cart.ItemCarrinho) {
+        if (item.quantidade > item.produto.quantidade) {
+          return reply.status(400).send({
+            success: false,
+            message: `Quantidade insuficiente para o produto ${item.produto.nome}`,
+            produto: item.produto.nome,
+            disponivel: item.produto.quantidade,
+            solicitado: item.quantidade
+          });
+        }
+      }
+
+      // VERIFICAÇÃO 11: Processar transação
+      try {
+        const orders = await prisma.$transaction(async (tx) => {
+          const createdOrders = [];
+
+          // Agrupa os itens do carrinho
+          for (const item of cart.ItemCarrinho) {
+            const total = item.quantidade * item.produto.preco;
+
+            const order = await tx.pagamento.create({
+              data: {
+                id: randomUUID(),
+                usuarioId: userId,
+                pedidoId: item.produtoId,
+                valor: total,
+                metodo: "DINHEIRO_ENTREGA",
+                status: "PENDENTE",
+                comprovativoUrl: uploadData?.path || fileName
+              },
+              include: { pedido: true }
+            });
+            createdOrders.push(order);
+
+            // Atualizar estoque
+            await tx.produto.update({
+              where: { id: item.produtoId },
+              data: {
+                quantidade: {
+                  decrement: item.quantidade
+                }
+              }
+            });
+          }
+
+          // Limpar carrinho
+          await tx.carrinho.delete({
+            where: { id: cart.id }
+          });
+
+          return createdOrders;
+        });
+
+        console.log('✅ Checkout finalizado com sucesso');
+        return reply.status(200).send({
+          success: true,
+          message: "Compra finalizada com sucesso",
+          data: {
+            orders,
+            comprovativo: uploadData?.path
+          }
+        });
+
+      } catch (transactionError) {
+        console.error('❌ Erro na transação:', transactionError);
+        return reply.status(500).send({
+          success: false,
+          message: "Erro ao processar pagamento",
+          error: transactionError instanceof Error ? transactionError.message : String(transactionError)
+        });
+      }
+
+    } catch (error) {
+      console.error('❌ Erro no checkout:', error);
+      
+      if (error instanceof z.ZodError) {
+        return reply.status(400).send({
+          success: false,
+          message: "Erro de validação",
+          errors: error.errors
+        });
+      }
+
+      return reply.status(500).send({
+        success: false,
+        message: "Erro interno ao processar checkout",
+        error: error instanceof Error ? error.message : String(error)
       });
-    } catch (error: any) {
-      reply.code(500).send({ message: "Erro ao finalizar a compra", error: error.message });
     }
   });
 
@@ -390,22 +563,23 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
   // Atualizar quantidade do item usando produtoId
   app.put<AtualizarItemRoute>(
-    '/item/:id/:produtoId', // Mudado de :itemId para :produtoId
+    '/item/:id/:produtoId',
     {
       preHandler: [authenticate],
       schema: {
         params: {
           type: 'object',
           properties: {
-            produtoId: { type: 'string' } // Mudado de itemId para produtoId
+            id: { type: 'string' },
+            produtoId: { type: 'string' }
           },
-          required: ['id','produtoId']
+          required: ['id', 'produtoId']
         },
         body: {
           type: 'object',
           required: ['quantidade'],
           properties: {
-            quantidade: { type: 'number', minimum: 0 } // Permite 0 para remover
+            quantidade: { type: 'number', minimum: 0 }
           }
         },
         response: {
@@ -453,14 +627,14 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
   // Remover item do carrinho usando produtoId
   app.delete<RemoverItemRoute>(
-    '/item/:produtoId', // Mudado de :itemId para :produtoId
+    '/item/:produtoId',
     {
       preHandler: [authenticate],
       schema: {
         params: {
           type: 'object',
           properties: {
-            produtoId: { type: 'string' } // Mudado de itemId para produtoId
+            produtoId: { type: 'string' }
           },
           required: ['produtoId']
         },
@@ -500,7 +674,6 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
     carrinhoController.removerItem.bind(carrinhoController)
   );
 
-
   app.delete('/deleteProduct/:id/:produtoId', {
     preHandler: [authenticate],
     schema: {
@@ -524,8 +697,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
     }
   },
     carrinhoController.deleteProductInCart.bind(carrinhoController)
-  )
-
+  );
 
   app.delete<LimparCarrinhoRoute>('/deleteAllProducts/:id', {
     preHandler: [authenticate],
@@ -550,7 +722,8 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
     },
   },
     carrinhoController.deleteAllProductsInCart.bind(carrinhoController)
-  )
+  );
+
   // Limpar carrinho
   app.delete<LimparCarrinhoRoute>(
     '/limpar',
@@ -836,7 +1009,6 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
             }
           })) || [],
           totalItens,
-          subtotal: valorTotal,
           desconto: 0,
           total: valorTotal
         };

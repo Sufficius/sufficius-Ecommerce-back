@@ -1391,7 +1391,7 @@ export default async function authRoutes(app: FastifyInstance) {
           tipo: true,
           _count: {
             select: {
-              Avaliacao: true
+              Pedido: true
             }
           },
           Pedido: {

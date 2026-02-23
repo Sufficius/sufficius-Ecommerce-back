@@ -14,6 +14,7 @@ export class CategoriasController {
             select: {
               id: true,
               nome: true,
+              foto:true,
               // ativo: true // Comente se não existir
             }
           }

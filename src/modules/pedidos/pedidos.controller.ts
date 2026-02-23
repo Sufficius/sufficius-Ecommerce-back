@@ -151,10 +151,6 @@ export class PedidosController {
                 });
             }
 
-            console.log(`📝 Criando pedido para usuário: ${usuario.id}`);
-            console.log(`🏠 Endereço selecionado: ${enderecoId}`);
-            console.log(`💳 Método de pagamento: ${metodoPagamento}`);
-
 
             // Buscar carrinho do usuário
             const carrinho = await prisma.carrinho.findUnique({
@@ -190,8 +186,6 @@ export class PedidosController {
                 });
             }
 
-            console.log(`🛒 Itens no carrinho: ${carrinho.ItemCarrinho.length}`);
-
             // Verificar endereço
             const endereco = await prisma.endereco.findFirst({
                 where: {
@@ -207,18 +201,11 @@ export class PedidosController {
                 });
             }
 
-            console.log(`📍 Endereço validado: ${endereco.rua}, ${endereco.numero}`);
-
             // Verificar estoque e calcular valores
-            let subtotal = 0;
             const itensSemEstoque: string[] = [];
 
             for (const item of carrinho.ItemCarrinho) {
                 const estoqueDisponivel = item.produto.quantidade;
-
-                console.log(`📦 Verificando produto: ${item.produto.nome}`);
-                console.log(`   Quantidade solicitada: ${item.quantidade}`);
-                console.log(`   Estoque disponível: ${estoqueDisponivel}`);
 
                 if (estoqueDisponivel < item.quantidade) {
                     itensSemEstoque.push(`${item.produto.nome} (disponível: ${estoqueDisponivel}, solicitado: ${item.quantidade})`);
@@ -231,9 +218,7 @@ export class PedidosController {
 
                 const preco = item.produto?.preco;
                 const itemTotal = preco * item.quantidade;
-                subtotal += itemTotal;
 
-                console.log(`   Preço: ${preco}, Subtotal item: ${itemTotal}`);
             }
 
             if (itensSemEstoque.length > 0) {
@@ -246,16 +231,9 @@ export class PedidosController {
 
             // Cálculos simplificados (em produção, calcular frete e impostos reais)
             const frete = 0; // Valor fixo de exemplo
-            const imposto = subtotal * 0.12; // 12% de imposto
             const valorDesconto = 0;
-            const total = subtotal + frete + imposto - valorDesconto;
+            const total =  frete + valorDesconto;
 
-            console.log(`💰 Cálculos finais:`);
-            console.log(`   Subtotal: ${subtotal}`);
-            console.log(`   Frete: ${frete}`);
-            console.log(`   Imposto: ${imposto}`);
-            console.log(`   Desconto: ${valorDesconto}`);
-            console.log(`   Total: ${total}`);
             // Gerar número do pedido
             const numeroPedido = randomUUID();
 
@@ -267,7 +245,6 @@ export class PedidosController {
                     usuarioId: usuario.id,
                     enderecoId: enderecoId,
                     status: 'PAGAMENTO_PENDENTE',
-                    subtotal,
                     frete,
                     metodoPagamento: "DINHEIRO_ENTREGA",
                     desconto: valorDesconto,
@@ -278,14 +255,9 @@ export class PedidosController {
                 }
             });
 
-            console.log(`✅ Pedido criado: ${pedido.id}`);
-
             // Criar itens do pedido
             for (const item of carrinho.ItemCarrinho) {
                 const preco = item.produto.preco;
-
-                console.log(`➕ Criando item de pedido para produto: ${item.produto.nome}`);
-                console.log(`   Quantidade: ${item.quantidade}, Preço: ${preco}`);
 
                 await prisma.itemPedido.create({
                     data: {
@@ -304,16 +276,12 @@ export class PedidosController {
                         quantidade: { decrement: item.quantidade }
                     }
                 });
-                console.log(`📉 Estoque atualizado para produto ${item.produto.nome}`);
-                // console.log("ID DO ITEM: ", item.id);
             }
 
             // Limpar carrinho
             await prisma.itemCarrinho.deleteMany({
                 where: { carrinhoId: carrinho.id }
             });
-
-            console.log(`🧹 Carrinho limpo: ${carrinho.id}`);
 
             reply.status(201).send({
                 success: true,

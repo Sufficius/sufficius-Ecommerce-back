@@ -34,9 +34,6 @@ export default async function vendasRoutes(app: FastifyInstance) {
     '/dashboard',
     {
       schema: {
-        tags: ['Vendas'],
-        summary: 'Dashboard público de vendas',
-        description: 'Retorna dados básicos de vendas para display público',
         response: {
           200: {
             type: 'object',
@@ -119,7 +116,7 @@ export default async function vendasRoutes(app: FastifyInstance) {
         });
 
         // 3. Produtos mais vendidos
-        const produtosMaisVendidos = await prisma.itempedido.groupBy({
+        const produtosMaisVendidos = await prisma.itemPedido.groupBy({
           by: ['produtoId'],
           where: {
             pedido: {
@@ -215,9 +212,6 @@ export default async function vendasRoutes(app: FastifyInstance) {
     '/periodo',
     {
       schema: {
-        tags: ['Vendas'],
-        summary: 'Vendas por período',
-        description: 'Retorna vendas dentro de um período específico',
         querystring: {
           type: 'object',
           properties: {
@@ -282,7 +276,7 @@ export default async function vendasRoutes(app: FastifyInstance) {
             status: { in: ['ENVIADO', 'ENTREGUE'] }
           },
           include: {
-            itempedido: {
+            ItemPedido: {
               include: {
                 produto: {
                   select: {
@@ -314,11 +308,10 @@ export default async function vendasRoutes(app: FastifyInstance) {
               total: pedido.total,
               status: pedido.status,
               criadoEm: pedido.criadoEm,
-              itens: pedido.itempedido.map(item => ({
-                produto: item.produto.nome,
-                quantidade: item.quantidade,
-                precoUnitario: item.precoUnitario,
-                subtotal: item.precoTotal
+              itens: pedido.ItemPedido.map((e) => ({
+                produto: e.produto,
+                total: e.precoTotal,
+                quantidade: e.quantidade,
               }))
             }))
           }
@@ -341,9 +334,6 @@ export async function vendasHoje(app: FastifyInstance) {
     {
       preHandler: [authenticate],
       schema: {
-        tags: ['Vendas'],
-        summary: 'Vendas de hoje',
-        security: [{ bearerAuth: [] }],
         response: {
           200: {
             type: 'object',
@@ -431,7 +421,7 @@ export async function vendasHoje(app: FastifyInstance) {
               email: true
             }
           },
-          itempedido: {
+          ItemPedido: {
             include: {
               produto: {
                 select: {
@@ -455,7 +445,7 @@ export async function vendasHoje(app: FastifyInstance) {
       const totalPedidos = pedidos.length;
 
       const totalItens = pedidos.reduce((sum, pedido) => {
-        return sum + pedido.itempedido.reduce((itemSum, item) => itemSum + item.quantidade, 0);
+        return sum + pedido.ItemPedido.reduce((itemSum, item) => itemSum + item.quantidade, 0);
       }, 0);
 
       const ticketMedio = totalPedidos > 0 ? totalVendas / totalPedidos : 0;
@@ -468,7 +458,7 @@ export async function vendasHoje(app: FastifyInstance) {
       }, {} as Record<string, number>);
 
       // 5. Produtos mais vendidos hoje
-      const todosItensHoje = pedidos.flatMap(pedido => pedido.itempedido);
+      const todosItensHoje = pedidos.flatMap(pedido => pedido.ItemPedido);
 
       const produtosVendidosMap = todosItensHoje.reduce((acc, item) => {
         const produtoId = item.produtoId;
@@ -500,7 +490,7 @@ export async function vendasHoje(app: FastifyInstance) {
         status: pedido.status,
         total: pedido.total,
         criadoEm: pedido.criadoEm.toISOString(),
-        itens: pedido.itempedido.length
+        itens: pedido.ItemPedido.length
       }));
 
       return reply.code(200).send({

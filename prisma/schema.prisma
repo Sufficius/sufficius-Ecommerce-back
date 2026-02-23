@@ -28,7 +28,6 @@ model Usuario {
   Endereco  Endereco[]
   Carrinho  Carrinho?
   Pedido    Pedido[]
-  Avaliacao Avaliacao[]
   Pagamento Pagamento[]
   Reembolso Reembolso[]
 }
@@ -66,7 +65,6 @@ model Produto {
   ImagemProduto ImagemProduto[]
   ItemCarrinho  ItemCarrinho[]
   ItemPedido    ItemPedido[]
-  Avaliacao     Avaliacao[]
 }
 
 model Categoria {
@@ -121,8 +119,6 @@ model Pedido {
   enderecoId   String
   status       StatusPedido @default(PAGAMENTO_PENDENTE)
 
-  // Valores monetários
-  subtotal Float
   frete    Float
   desconto Float @default(0)
   total    Float
@@ -148,7 +144,6 @@ model Pedido {
   endereco        Endereco          @relation(fields: [enderecoId], references: [id])
   ItemPedido      ItemPedido[]
   HistoricoPedido HistoricoPedido[]
-  Avaliacao       Avaliacao[]
   Pagamento       Pagamento[]
   Reembolso       Reembolso[]
 
@@ -185,23 +180,7 @@ model HistoricoPedido {
   @@index([pedidoId])
 }
 
-model Avaliacao {
-  id         String   @id @default(uuid())
-  usuarioId  String
-  produtoId  String
-  pedidoId   String // Garante que avaliou apenas quem comprou
-  nota       Int
-  comentario String?
-  verificada Boolean  @default(false) // Verificada como comprador real
-  criadoEm   DateTime @default(now())
 
-  usuario Usuario @relation(fields: [usuarioId], references: [id])
-  produto Produto @relation(fields: [produtoId], references: [id])
-  pedido  Pedido  @relation(fields: [pedidoId], references: [id])
-
-  @@index([produtoId])
-  @@index([nota])
-}
 
 // TABELA: Pagamento
 model Pagamento {

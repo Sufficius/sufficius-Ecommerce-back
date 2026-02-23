@@ -1,8 +1,7 @@
-import { MultipartBody, MultipartField } from "@/types/multipart";
 import { MultipartFile } from "@fastify/multipart";
+import { MultipartBody, MultipartField } from "../types/multipart";
+import { simplifyMultipartBody } from "./objects"; // Importar a nova função simplificada
 import { copyFileSync } from "fs";
-import { removeCircularReferences } from "./objects";
-
 
 /**
  * Extracts fields and files from a given multipart body.
@@ -30,21 +29,30 @@ import { removeCircularReferences } from "./objects";
  * console.log(result.fields);
  * console.log(result.files);
  */
-export async function getFieldsAndFiles(data: MultipartBody | null) {
-    const fields: Record<string, string> = {};
-    const files: Record<string, MultipartFile | undefined> = {};
-
-    for (const [key, obj] of Object.entries(data ?? "")) {
-        if ((obj?.type as "field" | "file" | undefined) === "field") {
-            fields[key] = (obj as MultipartField).value;
-        } else {
-            files[key] = removeCircularReferences(obj);
-        }
+export async function getFieldsAndFiles(data: MultipartBody) {
+    // VERIFICAÇÃO CRÍTICA - Corrige o erro "Cannot convert undefined or null to object"
+    if (!data || typeof data !== 'object') {
+        console.warn('❌ getFieldsAndFiles recebeu dados inválidos:', data);
+        return { fields: {}, files: {} };
     }
 
-    const cleanedFields = removeCircularReferences(fields);
+    console.log('📦 getFieldsAndFiles processando dados...');
+    
+    // USAR A FUNÇÃO SIMPLIFICADA que já lida com referências circulares
+    const { fields, files } = simplifyMultipartBody(data);
 
-    return { fields: cleanedFields, files };
+    console.log('✅ Campos extraídos com sucesso:', Object.keys(fields));
+    console.log('✅ Arquivos extraídos com sucesso:', Object.keys(files));
+
+    // Converter files para o formato esperado (MultipartFile | undefined)
+    const formattedFiles: Record<string, MultipartFile | undefined> = {};
+    
+    for (const [key, fileObj] of Object.entries(files)) {
+        formattedFiles[key] = fileObj as MultipartFile;
+    }
+
+    return { 
+        fields, 
+        files: formattedFiles 
+    };
 }
-
-

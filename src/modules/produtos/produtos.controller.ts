@@ -6,6 +6,8 @@ import fs, { stat } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { getProductImageUrl, FALLBACK_PRODUCT_IMAGE } from '../../utils/cloudinary';
+import { uploadService } from '@/services/uploads/upload';
+import uploadRoutes from '../upload/upload';
 
 // Interfaces
 interface ProdutoInput {
@@ -15,7 +17,7 @@ interface ProdutoInput {
   descricao?: string;
   id_categoria?: string;
   status?: string;
-  emDestaque?: string | boolean;
+  foto?: string;
   deletarImagem?: string;
 }
 
@@ -58,120 +60,6 @@ if (!fs.existsSync(TEMP_UPLOAD_DIR)) {
   fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
 }
 
-async function uploadToCloudinary(fileBuffer: Buffer, produtoId: string, originalFilename: string): Promise<{
-  id: string;
-  secureUrl: string;
-  format: string;
-  bytes: number;
-  width: number;
-  height: number;
-}> {
-  try {
-    console.log('='.repeat(50));
-    console.log('☁️  INICIANDO UPLOAD PARA CLOUDINARY');
-    console.log('='.repeat(50));
-
-    console.log('📦 Dados do upload:');
-    console.log('   Produto ID:', produtoId);
-    console.log('   Nome original:', originalFilename);
-    console.log('   Tamanho do buffer:', fileBuffer.length, 'bytes');
-    console.log('   Tamanho em MB:', (fileBuffer.length / 1024 / 1024).toFixed(2), 'MB');
-
-    // 1. Verificar variáveis de ambiente
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'sufficius-commerce';
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET || 'ml_default';
-
-    console.log('🔐 Configuração Cloudinary:');
-    console.log('   Cloud Name:', cloudName);
-    console.log('   API Key:', apiKey ? '***' + apiKey.slice(-4) : 'NÃO CONFIGURADA');
-    console.log('   Upload Preset:', uploadPreset);
-
-    if (!apiKey) {
-      console.error('❌ ERRO: CLOUDINARY_API_KEY não configurada!');
-      console.error('   Adicione no .env: CLOUDINARY_API_KEY=sua_chave_aqui');
-      throw new Error('Cloudinary não configurado');
-    }
-
-    // 2. Preparar FormData
-    const formData = new FormData();
-    const blob = new Blob([new Uint8Array(fileBuffer)], { type: 'image/jpeg' });
-
-    // Gerar um public_id único
-    const timestamp = Date.now();
-    const randomStr = Math.random().toString(36).substring(2, 10);
-    const extension = originalFilename.split('.').pop() || 'jpg';
-    const id = `produto_${produtoId}_${timestamp}_${randomStr}`;
-    const uploadFilename = `${id}.${extension}`;
-
-    console.log('📁 Informações do arquivo:');
-    console.log('   Public ID:', id);
-    console.log('   Nome do upload:', uploadFilename);
-
-    formData.append('file', blob, uploadFilename);
-    formData.append('upload_preset', uploadPreset);
-    formData.append('folder', 'produtos');
-    formData.append('public_id', id);
-
-    // 3. Fazer upload
-    console.log('📤 Enviando para Cloudinary...');
-    console.log('   URL:', `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`);
-
-    const startTime = Date.now();
-    const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-      {
-        method: 'POST',
-        body: formData,
-      }
-    );
-    const endTime = Date.now();
-
-    console.log('⏱️  Tempo de upload:', (endTime - startTime), 'ms');
-    console.log('📥 Resposta do Cloudinary:');
-    console.log('   Status:', response.status, response.statusText);
-    console.log('   OK?', response.ok);
-
-    // 4. Processar resposta
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ ERRO DO CLOUDINARY:');
-      console.error('   Status:', response.status);
-      console.error('   Resposta:', errorText);
-
-      try {
-        const errorJson = JSON.parse(errorText);
-        console.error('   Erro detalhado:', JSON.stringify(errorJson, null, 2));
-      } catch (e) {
-        console.error('   Erro (texto):', errorText);
-      }
-
-      throw new Error(`Cloudinary upload failed: ${response.status} ${response.statusText}`);
-    }
-
-    const result = await response.json() as any;
-
-
-    return {
-      id: result.public_id,
-      secureUrl: result.secure_url,
-      format: result.format,
-      bytes: result.bytes,
-      width: result.width,
-      height: result.height
-    };
-
-  } catch (error: any) {
-    console.error('='.repeat(50));
-    console.error('❌ ERRO CRÍTICO NO UPLOAD DO CLOUDINARY');
-    console.error('='.repeat(50));
-    console.error('Mensagem:', error.message);
-    console.error('Stack:', error.stack);
-    console.error('='.repeat(50));
-    throw error;
-  }
-}
-
 // Função para salvar arquivo temporariamente e enviar para Cloudinary
 async function saveAndUploadToCloudinary(file: any, produtoId: string): Promise<SavedFile> {
   try {
@@ -185,26 +73,16 @@ async function saveAndUploadToCloudinary(file: any, produtoId: string): Promise<
     const tempFilename = `${produtoId}-${timestamp}-${randomStr}${extension}`;
     const tempFilepath = path.join(TEMP_UPLOAD_DIR, tempFilename);
 
-    console.log(`📁 Nome do arquivo temporário: ${tempFilename}`);
-    console.log(`📁 Caminho temporário: ${tempFilepath}`);
-
     // Salvar arquivo temporariamente
     const writeStream = fs.createWriteStream(tempFilepath);
     await pipeline(file.file, writeStream);
 
-    // Ler o arquivo salvo
-    const fileBuffer = fs.readFileSync(tempFilepath);
-    const stats = fs.statSync(tempFilepath);
-
-    console.log(`📊 Arquivo salvo temporariamente: ${tempFilename} (${stats.size} bytes)`);
-
     // Fazer upload para Cloudinary
-    const cloudinaryResult = await uploadToCloudinary(fileBuffer, produtoId, originalName);
+    const cloudinaryResult = await getUploadDir();
 
     // Limpar arquivo temporário
     try {
       fs.unlinkSync(tempFilepath);
-      console.log('🗑️  Arquivo temporário removido');
     } catch (cleanupError) {
       console.warn('⚠️  Não foi possível remover arquivo temporário:', cleanupError);
     }
@@ -213,9 +91,9 @@ async function saveAndUploadToCloudinary(file: any, produtoId: string): Promise<
       filename: originalName,
       filepath: tempFilepath,
       mimetype: file.mimetype || 'image/jpeg',
-      size: cloudinaryResult.bytes,
-      id: cloudinaryResult.id,
-      cloudinaryUrl: cloudinaryResult.secureUrl
+      size: Number(cloudinaryResult),
+      id: cloudinaryResult.toString(),
+      cloudinaryUrl: cloudinaryResult
     };
 
   } catch (error: any) {
@@ -224,14 +102,14 @@ async function saveAndUploadToCloudinary(file: any, produtoId: string): Promise<
   }
 }
 
-function buildImageUrlFromFoto(foto?:string | null): string | null {
- 
+function buildImageUrlFromFoto(foto?: string | null): string | null {
+
 
   console.log('🖼️ Construindo URL a partir do campo foto:', foto);
   if (!foto) {
     return FALLBACK_PRODUCT_IMAGE;
   }
-   if (foto.startsWith('http')) {
+  if (foto.startsWith('http')) {
     return foto;
   }
 
@@ -244,7 +122,7 @@ function buildImageUrlFromFoto(foto?:string | null): string | null {
     });
   }
 
-   return FALLBACK_PRODUCT_IMAGE;
+  return FALLBACK_PRODUCT_IMAGE;
 }
 
 function buildImageUrl(id?: string, cloudinaryUrl?: string): string | null {
@@ -321,7 +199,7 @@ async function deleteFromCloudinary(id: string): Promise<void> {
       return;
     }
 
-     // Implementar deleção usando fetch API
+    // Implementar deleção usando fetch API
     const timestamp = Math.round(Date.now() / 1000);
     const signature = require('crypto')
       .createHash('sha1')
@@ -329,13 +207,13 @@ async function deleteFromCloudinary(id: string): Promise<void> {
       .digest('hex');
 
 
-      const formData = new FormData();
+    const formData = new FormData();
     formData.append('public_id', id);
     formData.append('timestamp', timestamp.toString());
     formData.append('api_key', apiKey);
     formData.append('signature', signature);
 
-     const response = await fetch(
+    const response = await fetch(
       `https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`,
       {
         method: 'POST',
@@ -389,7 +267,7 @@ async function deleteTempFiles(produtoId: string): Promise<number> {
 }
 
 // Função para validar dados do produto
-function validateProdutoData(data: ProdutoInput): {
+function validateProdutoData(data: any): {
   isValid: boolean;
   errors: string[];
   validated: {
@@ -398,24 +276,26 @@ function validateProdutoData(data: ProdutoInput): {
     quantidade?: number;
     descricao?: string;
     id_categoria?: string;
-    status?: 'ACTIVO' | 'INACTIVO';
+    status?: 'ATIVO' | 'INATIVO';
+    foto?: string;
   }
 } {
   const errors: string[] = [];
   const validated: any = {};
 
+  const { nome, preco, quantidade, id_categoria, descricao, status } = data as any;
+
   // Validar nome
-  if (!data.nome || String(data.nome).trim().length === 0) {
+  if (!nome || String(nome).trim().length === 0) {
     errors.push('Nome do produto é obrigatório');
   } else {
-    validated.nome = String(data.nome).trim();
+    validated.nome = String(nome).trim();
   }
 
   // Validar preço
-  if (data.preco === undefined || data.preco === '') {
+  if (preco === undefined || preco === '') {
     errors.push('Preço do produto é obrigatório');
   } else {
-    const preco = parseFloat(String(data.preco));
     if (isNaN(preco) || preco < 0) {
       errors.push('Preço inválido');
     } else {
@@ -424,10 +304,9 @@ function validateProdutoData(data: ProdutoInput): {
   }
 
   // Validar quantidade
-  if (data.quantidade === undefined || data.quantidade === '') {
+  if (quantidade === undefined || quantidade === '') {
     errors.push('Quantidade do produto é obrigatória');
   } else {
-    const quantidade = parseInt(String(data.quantidade));
     if (isNaN(quantidade) || quantidade < 0) {
       errors.push('Quantidade inválida');
     } else {
@@ -436,21 +315,21 @@ function validateProdutoData(data: ProdutoInput): {
   }
 
   // Validar categoria
-  if (!data.id_categoria || String(data.id_categoria).trim().length === 0) {
+  if (!id_categoria || String(id_categoria).trim().length === 0) {
     errors.push('Categoria do produto é obrigatória');
   } else {
-    validated.id_categoria = String(data.id_categoria).trim();
+    validated.id_categoria = String(id_categoria).trim();
   }
 
   // Descrição (opcional)
-  if (data.descricao) {
-    validated.descricao = String(data.descricao).trim();
+  if (descricao) {
+    validated.descricao = String(descricao).trim();
   }
 
   // Status
-  validated.status = (data.status === 'ACTIVO' || data.status === 'INACTIVO')
-    ? data.status
-    : 'ACTIVO';
+  validated.status = (status === 'ATIVO' || status === 'INATIVO')
+    ? status
+    : 'ATIVO';
 
   return {
     isValid: errors.length === 0,
@@ -461,37 +340,35 @@ function validateProdutoData(data: ProdutoInput): {
 
 export class ProdutosController {
 
-  async getProdutos(request: FastifyRequest, reply: FastifyReply){
-    try{
-        
-    const produto = await prisma.produto.findMany({
-      select: {
-        id:true,
-        nome:true,
-        preco:true,
-        quantidade:true,
-        status:true,
-        atualizadoEm:true,
-        criadoEm:true,
+  async getProdutos(request: FastifyRequest, reply: FastifyReply) {
+    try {
+
+      const produto = await prisma.produto.findMany({
+        select: {
+          id: true,
+          nome: true,
+          preco: true,
+          quantidade: true,
+          status: true,
+          atualizadoEm: true,
+          criadoEm: true,
           Categoria: {
-            select:{
-              id:true,
-              nome:true
+            select: {
+              id: true,
+              nome: true
             }
           },
-          foto:true,
-          },
-          orderBy: {criadoEm: 'desc'},
-        });
+          foto: true,
+        },
+        orderBy: { criadoEm: 'desc' },
+      });
 
-      console.log("🍀Todos os Produtos: ",produto);
-
-       reply.send({
+      reply.send({
         success: true,
         data: produto,
         total: produto.length
       });
-    }  catch (error) {
+    } catch (error) {
       console.error('❌ Erro ao listar produtos:', error);
       reply.status(500).send({
         success: false,
@@ -551,34 +428,35 @@ export class ProdutosController {
 
       const [produtos, total] = await Promise.all([
         prisma.produto.findMany({
-          where:where,
+          where: where,
           select: {
-            id:true,
-            nome:true,
-            preco:true,
-            quantidade:true,
-            status:true,
-            atualizadoEm:true,
-            criadoEm:true,
+            id: true,
+            nome: true,
+            preco: true,
+            quantidade: true,
+            status: true,
+            atualizadoEm: true,
+            foto: true,
+            criadoEm: true,
             Categoria: {
               select: {
                 id: true,
                 nome: true
               }
             },
-            ImagemProduto:{
-              select:{
-                id:true,
-                url:true,
-                produto:true,
-                principal:true,
-                produtoId:true
+            ImagemProduto: {
+              select: {
+                id: true,
+                url: true,
+                produto: true,
+                principal: true,
+                produtoId: true
               }
             }
           },
           skip,
           take: limite,
-          orderBy: {criadoEm: 'desc'},
+          orderBy: { criadoEm: 'desc' },
         }),
         prisma.produto.count({ where: where })
       ]);
@@ -586,29 +464,30 @@ export class ProdutosController {
       reply.send({
         success: true,
         data: produtos.map(p => ({
-          id:p.id,
+          id: p.id,
           nome: p.nome,
-          preco:p.preco,
+          preco: p.preco,
           quantidade: p.quantidade,
           status: p.status,
-          atualizadoEm:p.atualizadoEm.toISOString(),
-          criadoEm:p.criadoEm.toISOString(),
+          atualizadoEm: p.atualizadoEm.toISOString(),
+          criadoEm: p.criadoEm.toISOString(),
           Categoria: p.Categoria,
           ImagemProduto: p.ImagemProduto,
+          fotot: p.foto,
         })),
-          paginacao: {
-            page: pagina,
-            limit: limite,
-            total,
-            totalPages: Math.ceil(total / limite)
-          },
-          filtros: {
-            busca,
-            categoria,
-            status,
-            ordenar
-          }
-        });
+        paginacao: {
+          page: pagina,
+          limit: limite,
+          total,
+          totalPages: Math.ceil(total / limite)
+        },
+        filtros: {
+          busca,
+          categoria,
+          status,
+          ordenar
+        }
+      });
     } catch (error) {
       console.error('❌ Erro ao listar produtos:', error);
       reply.status(500).send({
@@ -645,7 +524,7 @@ export class ProdutosController {
       // Construir URLs do Cloudinary para as imagens
       const produtoComImagens = {
         ...produto,
-        imagemproduto:buildImageUrlFromFoto(produto.foto),
+        imagemproduto: buildImageUrlFromFoto(produto.foto),
         cloudinaryId: produto.foto
       };
 
@@ -667,7 +546,7 @@ export class ProdutosController {
   async criarProduto(request: FastifyRequest, reply: FastifyReply) {
     try {
       console.log('📦 Criando novo produto...');
-
+      const { nome, preco, quantidade, id_categoria, descricao, status } = request.body as any;
       // 1. PRIMEIRO verificar autenticação MANUALMENTE
       try {
         await request.jwtVerify();
@@ -688,63 +567,20 @@ export class ProdutosController {
 
       // 2. AGORA processar o multipart
       const contentType = request.headers['content-type'] || '';
+      console.log("Content: ", contentType);
 
-      if (!contentType.includes('multipart/form-data')) {
-        return reply.status(400).send({
-          success: false,
-          message: 'Content-Type deve ser multipart/form-data'
-        });
-      }
 
-      if (!request.isMultipart()) {
-        return reply.status(400).send({
-          success: false,
-          message: 'Requisição deve ser multipart'
-        });
-      }
 
-      let dados: ProdutoInput = {};
-      let imagemFile: any = null;
+      let dados = request.body as any;
 
       console.log('🔄 Processando dados multipart...');
 
-      // 3. IMPORTANTE: Usar try-catch específico para multipart
-      try {
-        const parts = request.parts();
-
-        for await (const part of parts) {
-          console.log(`📄 Processando parte: ${part.fieldname}`);
-
-          if (part.type === 'file') {
-            imagemFile = part;
-            console.log(`📁 Arquivo recebido: ${part.filename} (${part.mimetype})`);
-
-            // CONSUMIR o stream
-            for await (const chunk of part.file) {
-              // Apenas consumir para processar
-            }
-          } else if ('value' in part) {
-            const fieldname = part.fieldname as keyof ProdutoInput;
-            const value = String(part.value);
-            console.log(`📝 Campo ${fieldname}: ${value}`);
-            dados[fieldname] = value;
-          }
-        }
-      } catch (multipartError: any) {
-        console.error('❌ Erro ao processar multipart:', multipartError);
-        return reply.status(400).send({
-          success: false,
-          message: 'Erro ao processar dados do formulário',
-          error: process.env.NODE_ENV === 'development' ? multipartError.message : undefined
-        });
-      }
-
       // Log dos dados recebidos
-      console.log('📊 Dados recebidos do formulário:', dados);
-      console.log('📁 Arquivo recebido:', imagemFile ? 'Sim' : 'Não');
+      console.log('📊 Dados recebidos do formulário:', { nome, preco, quantidade });
 
       // 4. Validar dados
       const validation = validateProdutoData(dados);
+      console.log("Tem Validação: ", validation);
       if (!validation.isValid) {
         return reply.status(400).send({
           success: false,
@@ -752,8 +588,6 @@ export class ProdutosController {
           errors: validation.errors
         });
       }
-
-      const { nome, preco, quantidade, descricao, id_categoria, status } = validation.validated;
 
       // 5. Verificar se categoria existe
       const categoriaExistente = await prisma.categoria.findUnique({
@@ -770,38 +604,13 @@ export class ProdutosController {
       // 6. Gerar IDs
       const produtoId = randomUUID();
 
-      let fotoUrl:string | null = null;
-      let cloudinaryId:string | null = null;
+      let fotoUrl: string | null = null;
+      let cloudinaryId: string | null = null;
 
 
       console.log('💾 Criando produto no banco de dados...');
 
-
-      // 8. Lidar com upload de imagem para Cloudinary
-      if (imagemFile) {
-        try {
-          console.log('☁️  Processando imagem para Cloudinary...');
-          const savedFile = await saveAndUploadToCloudinary(imagemFile, produtoId);
-
-          cloudinaryId = savedFile.id || null;
-          fotoUrl = savedFile.cloudinaryUrl || null;
-
-          console.log('📝 Dados da imagem salva:', {
-            filename: savedFile.filename,
-            id: savedFile.id,
-            cloudinaryUrl: savedFile.cloudinaryUrl,
-            cloudinaryUrlStartsWithHttp: savedFile.cloudinaryUrl?.startsWith('http'),
-            cloudinaryUrlIncludesCloudinary: savedFile.cloudinaryUrl?.includes('cloudinary.com')
-          });
-
-          console.log('✅ Imagem salva no Cloudinary com sucesso');
-        } catch (imageError: any) {
-          console.error('⚠️ Erro ao salvar imagem no Cloudinary:', imageError.message);
-          // Não falhar o produto se a imagem falhar
-        }
-      }
-
-          // 7. Criar produto no banco
+      // 7. Criar produto no banco
       const produto = await prisma.produto.create({
         data: {
           id: produtoId,
@@ -809,7 +618,7 @@ export class ProdutosController {
           descricao: descricao,
           preco: preco!,
           quantidade: quantidade!,
-          foto:cloudinaryId || fotoUrl || null,
+          foto: fotoUrl || null,
           status: "ATIVO",
           id_categoria: id_categoria!,
         }
@@ -844,12 +653,10 @@ export class ProdutosController {
         categoria: produtoCriado?.Categoria?.nome || null,
         categoriaId: produtoCriado?.Categoria?.id || null,
         fotoUrl: produtoCriado?.foto,
-        imagem: buildImageUrlFromFoto(produtoCriado?.foto),
         publicId: imagemPrincipal?.id || null, // Incluir id
         criadoEm: produtoCriado?.criadoEm?.toISOString()
       };
 
-      console.log('🎉 Produto criado com sucesso!');
 
       return reply.status(201).send({
         success: true,
@@ -897,49 +704,12 @@ export class ProdutosController {
         });
       }
 
-      const contentType = request.headers['content-type'] || '';
-      const isMultipart = contentType.includes('multipart/form-data');
 
-      let dados: ProdutoInput = {};
+      let dados: any = {};
       let imagemFile: any = null;
       let deletarImagem = false;
 
-      // Processar dados
-      if (isMultipart && request.isMultipart()) {
-        const parts = request.parts();
-        for await (const part of parts) {
-          if (part.type === 'file') {
-            imagemFile = part;
-          } else if ('value' in part) {
-            const fieldname = part.fieldname as string;
-            const value = String(part.value).trim();
-
-            if (fieldname === 'emDestaque') {
-              dados[fieldname] = value === 'true' || value === '1';
-            } else if (fieldname === 'deletarImagem') {
-              deletarImagem = value === 'true';
-            } else if (fieldname === 'id_categoria') {
-              dados.id_categoria = value;
-            } else {
-              switch (fieldname) {
-                case 'nome':
-                case 'descricao':
-                case 'status':
-                  dados[fieldname] = value;
-                  break;
-                case 'preco':
-                case 'quantidade':
-                  dados[fieldname] = value;
-                  break;
-                default:
-                  break;
-              }
-            }
-          }
-        }
-      } else {
-        dados = request.body as ProdutoInput;
-      }
+      dados = request.body as ProdutoInput;
 
       // Preparar dados para atualização
       const updateData: any = {
@@ -980,14 +750,14 @@ export class ProdutosController {
       // Gerenciar imagens do Cloudinary
       if (deletarImagem && produtoExistente.foto) {
         // Deletar do Cloudinary
-         await deleteFromCloudinary(produtoExistente.foto);
-         updateData.foto = null
+        await deleteFromCloudinary(produtoExistente.foto);
+        updateData.foto = null
       }
 
       if (imagemFile) {
         try {
 
-           if (produtoExistente.foto) {
+          if (produtoExistente.foto) {
             await deleteFromCloudinary(produtoExistente.foto);
           }
           // Deletar imagens atuais do Cloudinary
@@ -1122,19 +892,19 @@ export class ProdutosController {
       });
 
       // Verificar dependências
-      const [temItensCarrinho, temItensPedido, temAvaliacoes] = await Promise.all([
+      const [temItensCarrinho, temItensPedido] = await Promise.all([
         prisma.itemCarrinho.findFirst({ where: { produtoId: id } }),
         prisma.itemPedido.findFirst({ where: { produtoId: id } }),
-        prisma.avaliacao.findFirst({ where: { produtoId: id } })
+        // prisma.avaliacao.findFirst({ where: { produtoId: id } })
       ]);
 
-      if (temItensCarrinho || temItensPedido || temAvaliacoes) {
+      if (temItensCarrinho || temItensPedido) {
         // Marcar como INACTIVO
         await prisma.produto.update({
           where: { id },
           data: {
             status: 'INATIVO',
-            foto:null
+            foto: null
           }
         });
 
@@ -1330,13 +1100,13 @@ export class ProdutosController {
       const produtosParaDeletar: string[] = [];
 
       for (const produtoId of produtosEncontrados) {
-        const [temItensCarrinho, temItensPedido, temAvaliacoes] = await Promise.all([
+        const [temItensCarrinho, temItensPedido] = await Promise.all([
           prisma.itemCarrinho.findFirst({ where: { produtoId } }),
           prisma.itemPedido.findFirst({ where: { produtoId } }),
-          prisma.avaliacao.findFirst({ where: { produtoId } })
+          // prisma.avaliacao.findFirst({ where: { produtoId } })
         ]);
 
-        if (temItensCarrinho || temItensPedido || temAvaliacoes) {
+        if (temItensCarrinho || temItensPedido) {
           produtosParaMarcarInativo.push(produtoId);
         } else {
           produtosParaDeletar.push(produtoId);
@@ -1411,50 +1181,50 @@ export class ProdutosController {
       let dateFilter: any = {};
       const hoje = new Date();
 
-        switch (periodo) {
-          case 'hoje':
-            const inicioHoje = new Date(hoje);
-            inicioHoje.setHours(0, 0, 0, 0);
-            dateFilter = {gte : inicioHoje};
-            break;
-          case '7dias':
-          const seteDiasAtras = new Date(hoje)  
+      switch (periodo) {
+        case 'hoje':
+          const inicioHoje = new Date(hoje);
+          inicioHoje.setHours(0, 0, 0, 0);
+          dateFilter = { gte: inicioHoje };
+          break;
+        case '7dias':
+          const seteDiasAtras = new Date(hoje)
           seteDiasAtras.setDate(seteDiasAtras.getDate() - 7);
-          dateFilter = {gte : seteDiasAtras};
-            break;
-          case '30dias':
-            const trintaDiasAtras = new Date(hoje);
-            trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
-            dateFilter = {gte: trintaDiasAtras}
-            break;
-          case 'mes':
-            const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-            dateFilter = {gte: inicioMes};
-            break;
-        }      
+          dateFilter = { gte: seteDiasAtras };
+          break;
+        case '30dias':
+          const trintaDiasAtras = new Date(hoje);
+          trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
+          dateFilter = { gte: trintaDiasAtras }
+          break;
+        case 'mes':
+          const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+          dateFilter = { gte: inicioMes };
+          break;
+      }
 
       const itensPedidoAgregados = await prisma.itemPedido.groupBy({
         by: ['produtoId'],
         _sum: {
           quantidade: true,
-            precoTotal:true
+          precoTotal: true
         },
-        where:{
+        where: {
           produto: {
             status: "ATIVO",
             ...(categoria ? { id_categoria: categoria } : {})
           },
           pedido: {
-             status: { in: ['ENTREGUE', 'CONFIRMADO', 'ENVIADO'] },
-          ...(periodo !== 'todos' ? { criadoEm: dateFilter } : {})
+            status: { in: ['ENTREGUE', 'CONFIRMADO', 'ENVIADO'] },
+            ...(periodo !== 'todos' ? { criadoEm: dateFilter } : {})
           }
         },
         orderBy: {
-        _sum: {
-          quantidade: 'desc'
-        }
-      },
-       take: limitNum
+          _sum: {
+            quantidade: 'desc'
+          }
+        },
+        take: limitNum
       });
 
       console.log(`📊 Produtos vendidos encontrados: ${itensPedidoAgregados.length}`);

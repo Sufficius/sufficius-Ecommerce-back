@@ -59,16 +59,11 @@ export class UsuariosController {
   // Criar novo usuário
   async criarUsuario(request: FastifyRequest<{ Body: CriarUsuarioBody }>, reply: FastifyReply) {
     try {
-      console.log('📝 Criando novo usuário...');
 
       // Verificar autenticação (apenas ADMIN pode criar usuários)
       const usuarioAutenticado = request.usuario;
 
-      console.log('Usuário autenticado:', usuarioAutenticado);
-      console.log('Tipo do usuário:', usuarioAutenticado?.tipo);
-
       if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
-        console.log('❌ Acesso negado. Usuário não é ADMIN:', usuarioAutenticado?.tipo);
         return reply.status(403).send({
           success: false,
           error: 'Apenas administradores podem criar usuários',
@@ -81,8 +76,6 @@ export class UsuariosController {
       }
 
       const { nome, email, tipo, telefone, senha, dataNascimento,endereco, fotoUrl } = request.body;
-
-      console.log('Dados recebidos:', { nome, email, tipo, telefone, dataNascimento, fotoUrl });
 
       // Validações básicas
       if (!nome || !email || !senha) {
@@ -154,9 +147,6 @@ export class UsuariosController {
       if (dataNascimento) {
         dadosUsuario.dataNascimento = new Date(dataNascimento);
       }
-
-      console.log('Dados do usuário a ser criado:', dadosUsuario);
-
       // Criar usuário
       const usuario = await prisma.usuario.create({
         data: dadosUsuario
@@ -198,8 +188,6 @@ export class UsuariosController {
         }
       });
 
-      console.log('✅ Usuário criado com sucesso:', usuarioCriado?.id);
-
       return reply.status(201).send({
         success: true,
         message: 'Usuário criado com sucesso',
@@ -232,8 +220,6 @@ export class UsuariosController {
       const limitNumber = parseInt(limit);
       const skip = (pageNumber - 1) * limitNumber;
 
-      console.log('📋 Listando usuários:', { page: pageNumber, limit: limitNumber, busca, tipo });
-
       // Construir condições de busca
       const whereClause: any = {};
 
@@ -248,8 +234,6 @@ export class UsuariosController {
       if (tipo && tipo !== 'todos') {
         whereClause.tipo = tipo;
       }
-
-      console.log('Where clause:', whereClause);
 
       // Buscar usuários
       const [usuarios, total] = await Promise.all([
@@ -273,8 +257,6 @@ export class UsuariosController {
         }),
         prisma.usuario.count({ where: whereClause })
       ]);
-
-      console.log("Usuário: ", usuarios);
 
 
       // Formatar resposta
@@ -313,8 +295,6 @@ export class UsuariosController {
   async obterUsuarioPorId(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     try {
       const { id } = request.params;
-
-      console.log('🔍 Buscando usuário ID:', id);
 
       const usuario = await prisma.usuario.findUnique({
         where: { id: id },
@@ -366,8 +346,6 @@ export class UsuariosController {
     try {
       const { id } = request.params;
       const { nome, email, telefone, senha, tipo, dataNascimento } = request.body;
-
-      console.log('✏️ Atualizando usuário ID:', id, { nome, email, tipo });
 
       // Verificar autenticação
       const usuarioAutenticado = request.usuario;
@@ -788,9 +766,6 @@ export class UsuariosController {
   }>, reply: FastifyReply) {
     try {
       const { id } = request.params;
-
-      console.log('🔄 Resetando senha do usuário ID:', id);
-
       // Verificar autenticação (apenas ADMIN pode resetar senha)
       const usuarioAutenticado = request.usuario;
 

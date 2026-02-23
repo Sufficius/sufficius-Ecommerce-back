@@ -18,7 +18,6 @@ interface ObterItemCarrinhoRoute {
                     produtoId: string;
                     quantidade: number;
                     preco: number;
-                    subtotal: number;
                     produto: {
                         id: string;
                         nome: string;
@@ -30,7 +29,6 @@ interface ObterItemCarrinhoRoute {
                     }
                 }>;
                  totalItens: number;
-                subtotal: number;
                 desconto: number;
                 total: number;
             };
@@ -62,7 +60,6 @@ export default async function itemcarrinhoRoutes(app: FastifyInstance) {
                                 atualizadoEm: { type: 'string' },
                                 itens: { type: 'array' },
                                 totalItens: { type: 'number' },
-                                subtotal: { type: 'number' },
                                 desconto: { type: 'number' },
                                 total: { type: 'number' }
                             }

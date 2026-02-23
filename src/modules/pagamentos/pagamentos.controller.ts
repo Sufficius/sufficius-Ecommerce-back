@@ -139,8 +139,6 @@ export class PagamentosController {
       const { gateway } = request.params;
       const notification = request.body as any;
 
-      console.log(`Webhook recebido do gateway: ${gateway}`, notification);
-
       // Processar notificação baseada no gateway
       let pagamentoId: string | null = null;
       let status: string = 'PENDENTE';
@@ -330,13 +328,10 @@ export class PagamentosController {
       const limite = parseInt(limit);
       const skip = (pagina - 1) * limite;
 
-      console.log('📋 Listando Pagamentos:', { page: page, limit: limite, status, metodo });
-
       const where: any = {};
       
       if (status) where.status = status;
       if (metodo) where.metodoPagamento = metodo;
-      console.log('Where clause:', where);
 
 
       const [pagamentos, total] = await Promise.all([
@@ -358,8 +353,6 @@ export class PagamentosController {
         }),
         prisma.pagamento.count({ where: where })
       ]);
-
-      console.log(`✅ Encontrados ${pagamentos.length} pagamentos de ${total} total`);
 
 
       reply.send({
