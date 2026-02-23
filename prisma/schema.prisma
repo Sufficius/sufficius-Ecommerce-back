@@ -191,6 +191,7 @@ model Pagamento {
   status    StatusPagamento @default(PENDENTE)
   tipo      TipoPagamento   @default(PAGAMENTO_PEDIDO)
   valor     Float
+  comprovativoUrl String? // URL do comprovante de pagamento (para métodos manuais)
 
   // Dados específicos por método de pagamento
   mpesaPhoneNumber   String? // Para M-Pesa

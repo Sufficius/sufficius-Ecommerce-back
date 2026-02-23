@@ -235,7 +235,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
   const normalizeFileName = (fileName: string): string => {
     if (!fileName) return `file_${Date.now()}`;
-    
+
     return fileName
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -248,9 +248,9 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       // VERIFICAÇÃO 1: Body existe?
       if (!request.body) {
         console.log('❌ Body não recebido');
-        return reply.status(400).send({ 
+        return reply.status(400).send({
           success: false,
-          message: "Nenhum dado recebido" 
+          message: "Nenhum dado recebido"
         });
       }
 
@@ -267,10 +267,10 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
         const resultado = await getFieldsAndFiles(body);
         fields = resultado.fields || {};
         files = resultado.files || {};
-        
+
         console.log('✅ Campos extraídos:', fields);
         console.log('✅ Arquivos extraídos:', Object.keys(files));
-        
+
         // Log detalhado do arquivo
         if ((files as any).paymentProof) {
           console.log('📎 Detalhes do paymentProof:', {
@@ -280,7 +280,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
             tamanho: (files as any).paymentProof.tamanho || 'desconhecido'
           });
         }
-        
+
       } catch (multipartError) {
         console.error('❌ Erro ao processar multipart:', multipartError);
         return reply.status(400).send({
@@ -292,9 +292,9 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
       // VERIFICAÇÃO 3: Campos obrigatórios existem?
       if (!fields || Object.keys(fields).length === 0) {
-        return reply.status(400).send({ 
+        return reply.status(400).send({
           success: false,
-          message: "Nenhum campo recebido no formulário" 
+          message: "Nenhum campo recebido no formulário"
         });
       }
 
@@ -309,7 +309,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
           return reply.status(400).send({
             success: false,
             message: "Erro de validação nos campos",
-            errors: validationError.errors
+            errors: validationError
           });
         }
         throw validationError;
@@ -320,9 +320,9 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       // VERIFICAÇÃO 5: Arquivo paymentProof existe? (CORRIGIDO: paymentProof)
       const paymentProofFile = (files as any).paymentProof;
       if (!paymentProofFile) {
-        return reply.status(400).send({ 
+        return reply.status(400).send({
           success: false,
-          message: "É necessário enviar o comprovativo! (campo 'paymentProof')" 
+          message: "É necessário enviar o comprovativo! (campo 'paymentProof')"
         });
       }
 
@@ -337,7 +337,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
           return reply.status(400).send({
             success: false,
             message: "Arquivo inválido",
-            errors: validationError.errors
+            errors: validationError
           });
         }
         throw validationError;
@@ -351,16 +351,16 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
       // VERIFICAÇÃO 7: Buffer do arquivo existe?
       if (!fileBuffer) {
-        return reply.status(400).send({ 
+        return reply.status(400).send({
           success: false,
-          message: "Arquivo inválido - buffer não encontrado" 
+          message: "Arquivo inválido - buffer não encontrado"
         });
       }
 
       if (!(fileBuffer instanceof Buffer)) {
-        return reply.status(400).send({ 
+        return reply.status(400).send({
           success: false,
-          message: "Arquivo inválido - não é um buffer válido" 
+          message: "Arquivo inválido - não é um buffer válido"
         });
       }
 
@@ -376,9 +376,9 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
       if (uploadError) {
         console.error("❌ Erro ao enviar para Supabase:", uploadError);
-        return reply.status(500).send({ 
+        return reply.status(500).send({
           success: false,
-          error: uploadError.message 
+          error: uploadError.message
         });
       }
 
@@ -387,26 +387,26 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       // VERIFICAÇÃO 9: Buscar carrinho do usuário
       const cart = await prisma.carrinho.findFirst({
         where: { usuarioId: userId },
-        include: { 
-          ItemCarrinho: { 
-            include: { 
-              produto: true 
-            } 
-          } 
+        include: {
+          ItemCarrinho: {
+            include: {
+              produto: true
+            }
+          }
         }
       });
 
       if (!cart) {
-        return reply.status(400).send({ 
+        return reply.status(400).send({
           success: false,
-          message: "Carrinho não encontrado" 
+          message: "Carrinho não encontrado"
         });
       }
 
       if (cart.ItemCarrinho.length === 0) {
-        return reply.status(400).send({ 
+        return reply.status(400).send({
           success: false,
-          message: "Carrinho vazio" 
+          message: "Carrinho vazio"
         });
       }
 
@@ -428,15 +428,58 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
         const orders = await prisma.$transaction(async (tx) => {
           const createdOrders = [];
 
+          const totalPedido = cart.ItemCarrinho.reduce((sum, item) => {
+            return sum + (item.quantidade * item.produto.preco);
+          }, 0);
+
+          const endereco = await prisma.endereco.findFirst({
+            where: { usuarioId: userId }
+          });
+
+          if (!endereco) {
+            return reply.status(400).send({
+              success: false,
+              message: "Endereço do usuário não encontrado"
+            });
+          }
+
+          const pedido = await tx.pedido.create({
+            data: {
+              id: randomUUID(),
+              numeroPedido: `${Math.floor(Math.random() * 10000)}`,
+              usuarioId: userId,
+              enderecoId: endereco.id,
+              status: "PAGAMENTO_PENDENTE",
+              frete: 0,
+              desconto: 0,
+              total: totalPedido,
+              metodoEnvio: "PADRAO",
+              metodoPagamento: "DINHEIRO_ENTREGA",
+              statusPagamento: "PENDENTE",
+              observacoes: `Local: ${checkoutFields.location}, Telefone: ${checkoutFields.phone}`,
+              ItemPedido: {
+                create: cart.ItemCarrinho.map(item => ({
+                  id: randomUUID(),
+                  produtoId: item.produtoId,
+                  quantidade: item.quantidade,
+                  precoUnitario: item.produto.preco,
+                  precoTotal: item.quantidade * item.produto.preco
+                }))
+              }
+            }
+          });
+
+          console.log('✅ Pedido criado com sucesso:', pedido);
+
           // Agrupa os itens do carrinho
           for (const item of cart.ItemCarrinho) {
             const total = item.quantidade * item.produto.preco;
 
-            const order = await tx.pagamento.create({
+            const pagamento = await tx.pagamento.create({
               data: {
                 id: randomUUID(),
                 usuarioId: userId,
-                pedidoId: item.produtoId,
+                pedidoId: pedido.id,
                 valor: total,
                 metodo: "DINHEIRO_ENTREGA",
                 status: "PENDENTE",
@@ -444,7 +487,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
               },
               include: { pedido: true }
             });
-            createdOrders.push(order);
+            createdOrders.push(pagamento);
 
             // Atualizar estoque
             await tx.produto.update({
@@ -462,7 +505,10 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
             where: { id: cart.id }
           });
 
-          return createdOrders;
+          return {
+            pedido,
+            pagamentos: createdOrders
+          };
         });
 
         console.log('✅ Checkout finalizado com sucesso');
@@ -470,7 +516,8 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
           success: true,
           message: "Compra finalizada com sucesso",
           data: {
-            orders,
+            pedidoId: orders.pedido.numeroPedido,
+            pagamentos: orders.pagamentos,
             comprovativo: uploadData?.path
           }
         });
@@ -486,12 +533,12 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
     } catch (error) {
       console.error('❌ Erro no checkout:', error);
-      
+
       if (error instanceof z.ZodError) {
         return reply.status(400).send({
           success: false,
           message: "Erro de validação",
-          errors: error.errors
+          errors: error
         });
       }
 
