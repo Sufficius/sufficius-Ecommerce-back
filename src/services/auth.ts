@@ -1,4 +1,4 @@
-import passport from 'passport';
+import passport from '@fastify/passport';
 import { Usuario } from '@prisma/client';
 import { Strategy as JWTStrategy, ExtractJwt, StrategyOptions } from 'passport-jwt';
 import jwt, { JwtPayload, SignOptions } from 'jsonwebtoken';
