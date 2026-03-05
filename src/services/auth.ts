@@ -1,4 +1,4 @@
-import passport, { Passport } from 'passport';
+import passport from 'passport';
 import { Usuario } from '@prisma/client';
 import { Strategy as JWTStrategy, ExtractJwt } from 'passport-jwt';
 import jwt, { JwtPayload } from 'jsonwebtoken';
@@ -33,7 +33,9 @@ class AuthService {
     private configurePassport() {
         passport.use(new JWTStrategy(
             {
-                jwtFromRequest: this.ExtractJwtFromSession,
+                jwtFromRequest(req) {
+                    return this.jwtFromRequest(req);
+                },
                 secretOrKey: process.env.JWT_SECRET as string,
             },
             async (payload: { nome: string }, done: any) => {
