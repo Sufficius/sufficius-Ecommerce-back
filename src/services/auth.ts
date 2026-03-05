@@ -16,7 +16,7 @@ declare module '@fastify/secure-session' {
 declare module 'fastify' {
     interface FastifyRequest {
         data?: JwtPayload | Usuario;
-        user?: Usuario; // Adicionar user ao FastifyRequest
+        currentUser?: Usuario; // Usar nome diferente para evitar conflito
     }
 }
 
@@ -53,14 +53,12 @@ class AuthService {
             'jwt',
             new JWTStrategy(opts, async (payload: any, done: any) => {
                 try {
-                    // CORREÇÃO: Usar o ID correto do payload
                     const usuarioId = payload.id || payload.sub;
                     
                     if (!usuarioId) {
                         return done(null, false, { message: "ID do usuário não encontrado no token" });
                     }
                     
-                    // CORREÇÃO: Usar o método correto para buscar por ID
                     const usuario = await userModel.getById(usuarioId);
 
                     if (!usuario) {
@@ -148,7 +146,6 @@ class AuthService {
                 });
             }
 
-            // CORREÇÃO: Usar getById em vez de getByName
             const usuario = await userModel.getById(decoded.id);
 
             if (!usuario) {
@@ -159,7 +156,7 @@ class AuthService {
             }
 
             req.data = decoded;
-            req.user = usuario;
+            req.currentUser = usuario; // Usar currentUser em vez de user
 
             return {
                 id: usuario.id,
@@ -207,7 +204,7 @@ class AuthService {
             }
 
             req.data = undefined;
-            req.user = undefined;
+            req.currentUser = undefined; // Usar currentUser
 
             return reply.status(200).send({ 
                 success: true,
@@ -227,14 +224,21 @@ class AuthService {
      * Verifica se o usuário atual é administrador
      */
     public isAdmin(req: FastifyRequest): boolean {
-        return req.user?.tipo === 'ADMIN';
+        return req.currentUser?.tipo === 'ADMIN'; // Usar currentUser
     }
 
     /**
      * Verifica se o usuário está autenticado
      */
     public isAuthenticated(req: FastifyRequest): boolean {
-        return !!req.user;
+        return !!req.currentUser; // Usar currentUser
+    }
+
+    /**
+     * Retorna o usuário atual
+     */
+    public getCurrentUser(req: FastifyRequest): Usuario | undefined {
+        return req.currentUser; // Usar currentUser
     }
 }
 
