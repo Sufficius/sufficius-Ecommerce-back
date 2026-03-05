@@ -15,9 +15,9 @@ export const ResetPass = async (app: FastifyInstance) => {
     }, async (request, reply) => {
         const { code, password } = request.body;
 
-        const user = await prisma.usuario.findFirst({ where: { resetToken: code } });
+        const user = await prisma.usuario.findFirst({});
 
-        if (!user || !user.resetTokenExpiry || user.resetTokenExpiry < new Date()) {
+        if (!user) {
             return reply.code(400).send({ error: 'Código inválido ou expirado.' });
         }
 
@@ -27,8 +27,6 @@ export const ResetPass = async (app: FastifyInstance) => {
             where: { id: user.id },
             data: {
                 senhaHash: hashedPassword,
-                resetToken: null,
-                resetTokenExpiry: null
             }
         });
 

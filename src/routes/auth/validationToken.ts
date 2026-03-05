@@ -45,7 +45,7 @@ export const ValidationToken = async (app: FastifyInstance) => {
       name: findUser.nome,
       email: findUser.email,
       phone_number: findUser.telefone,
-      avatar: findUser.foto,
+      avatar: findUser.fotoUrl,
     }
 
     reply.status(200).send({ message: 'Token is valid',user: userWithoutPassword });

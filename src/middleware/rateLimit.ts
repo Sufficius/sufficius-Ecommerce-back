@@ -47,7 +47,7 @@ const defaultKeyGenerator = (req: FastifyRequest): string => {
         req.ip ||
         req.socket.remoteAddress;
 
-    const path = req.routerPath || req.url;
+    const path = req.routeOptions || req.url;
 
     return `${ip}-${path}`;
 };

@@ -14,7 +14,7 @@ export const Login = async (app: FastifyInstance) => {
             }),
         },
     }, async (req, reply) => {
-        const { email, senha } = req.body;
+        const { email, senha } = req.body as any;
 
         // 1. Buscar usuário APENAS pelo email
         const user = await prisma.usuario.findUnique({

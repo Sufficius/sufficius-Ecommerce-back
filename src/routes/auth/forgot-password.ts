@@ -12,7 +12,7 @@ export const ForgotPass = async (app: FastifyInstance) => {
             })
         }
     }, async (request, reply) => {
-        const { email } = request.body;
+        const { email } = request.body as any;
         const user = await prisma.usuario.findUnique({ where: { email } });
 
         if (user) {
@@ -21,7 +21,7 @@ export const ForgotPass = async (app: FastifyInstance) => {
 
             await prisma.usuario.update({
                 where: { email },
-                data: { resetToken: resetCode, resetTokenExpiry: expiry }
+                data: { ultimoLogin: new Date()}
             });
 
             await sendResetCodeEmail(email, resetCode);
