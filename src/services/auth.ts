@@ -36,7 +36,7 @@ class AuthService {
                 jwtFromRequest: this.ExtractJwtFromSession,
                 secretOrKey: process.env.JWT_SECRET as string,
             },
-            async (payload: { nome: string }, done) => {
+            async (payload: { nome: string }, done: any) => {
                 try {
                     const admin = await userModel.getByName(payload.nome);
                     if (!admin) {
@@ -52,8 +52,9 @@ class AuthService {
 
     async generateToken(admin: Partial<Usuario>): Promise<string> {
         const payload = admin;
+        const expiresIn = process.env.JWT_EXPIRES_IN ? parseInt(process.env.JWT_EXPIRES_IN) : 86400; 
         return jwt.sign(payload, process.env.JWT_SECRET as string, {
-            expiresIn: process.env.JWT_EXPIRES_IN,
+            expiresIn: expiresIn,
         });
     }
     async verifyUser(req: FastifyRequest) {

@@ -10,7 +10,7 @@ export const criarUsuario = async (app: FastifyInstance) => {
             body: criarUsuarioSchema
         },
     }, async (request, reply) => {
-        const { id, nome, email, senha, telefone, tipo } = request.body;
+        const { id, nome, email, senha, telefone, tipo } = request.body as any;
 
         if (!nome || !email || !senha) {
             return reply.status(400).send({
@@ -57,7 +57,7 @@ export const criarUsuario = async (app: FastifyInstance) => {
                 email: email.toLowerCase(),
                 senhaHash: senhaHash,
                 telefone,
-                foto: null,
+                fotoUrl: null,
                 status: 'ATIVO',
             },
         });

@@ -4,10 +4,15 @@ import { FastifyInstance } from "fastify";
 
 export default async function servicoRoutes(app: FastifyInstance) {
   app.post("/", { preHandler: authenticate }, async (req) => {
-    const { id, nome, preco, sku } = req.body as any;
+    const { id, nome, preco, sku, quantidade } = req.body as any;
 
     return prisma.produto.create({
-      data: { id, nome, preco }
+      data: {
+        id,
+        nome,
+        preco,
+        quantidade,
+      }
     });
   });
 
