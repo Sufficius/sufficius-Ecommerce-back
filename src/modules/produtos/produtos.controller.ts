@@ -785,6 +785,7 @@ export class ProdutosController {
 
           await prisma.imagemProduto.create({
             data: {
+              estoqueId: randomUUID(),
               id: randomUUID(),
               produtoId: id,
               url: savedFile.cloudinaryUrl || '',
@@ -1328,7 +1329,8 @@ export class ProdutosController {
           where: { status: 'ATIVO' },
           include: {
             ImagemProduto: {
-              where: { principal: true },
+              where: { 
+                principal: true },
               take: 1
             }
           },

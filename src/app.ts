@@ -18,6 +18,7 @@ import carrinhoRoutes from "./modules/carrinho/carrinho.routes";
 import itemcarrinhoRoutes from "./modules/itemcarrinho/itemcarrinho.route";
 import { join } from "path";
 import uploadRoutes from "./modules/upload/upload";
+import estoqueRoutes from "./modules/estoque/estoque.routes";
 
 dotenv.config();
 
@@ -290,7 +291,7 @@ app.register(pedidosRoutes, { prefix: `/pedidos` });
 app.register(categoriasRoutes, { prefix: `/categorias` });
 app.register(pagamentosRoutes, { prefix: `/pagamentos` });
 app.register(enderecosRoutes, { prefix: `/enderecos` });
-// app.register(avaliacoesRoutes, { prefix: `/avaliacoes` });
+app.register(estoqueRoutes, { prefix: `/estoque` });
 app.register(carrinhoRoutes, { prefix: `/carrinho` });
 app.register(itemcarrinhoRoutes, { prefix: `/itemcarrinho` });
 app.register(uploadRoutes, { prefix: `/upload` });

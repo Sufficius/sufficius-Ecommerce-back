@@ -79,7 +79,7 @@ export class PagamentosController {
         data: {
           id: `pag_${Date.now()}`,
           metodo: "TRANSFERENCIA_BANCARIA",
-          valor:0,
+          valor: 0,
           usuario,
           pedido: {},
         }
@@ -149,7 +149,7 @@ export class PagamentosController {
 
         if (type === 'payment') {
           const paymentId = data.id;
-          
+
           // Em produção, você buscaria o pagamento pelo gatewayId
           pagamentoId = paymentId;
           status = 'APROVADO'; // Simulado
@@ -169,12 +169,12 @@ export class PagamentosController {
         // Buscar pagamento pelo ID externo (gatewayId)
         const pagamento = await prisma.pagamento.findFirst({
           where: {
-            id:pagamentoId
+            id: pagamentoId
           },
           include: {
             pedido: true,
-            historicos:true,
-            usuario:true,
+            historicos: true,
+            usuario: true,
           }
         });
 
@@ -218,14 +218,14 @@ export class PagamentosController {
         where: { id: pagamentoId },
         include: {
           usuario: {
-              select:{
-                id:true,
-              }
+            select: {
+              id: true,
+            }
           },
           pedido: {
             include: {
               ItemPedido: true,
-              Pagamento:true,
+              Pagamento: true,
             }
           }
         }
@@ -329,23 +329,31 @@ export class PagamentosController {
       const skip = (pagina - 1) * limite;
 
       const where: any = {};
-      
+
       if (status) where.status = status;
       if (metodo) where.metodoPagamento = metodo;
 
 
       const [pagamentos, total] = await Promise.all([
         prisma.pagamento.findMany({
-          where:where,
+          where: where,
           select: {
-            id:true,
-            metodo:true,
-            status:true,
-            tipo:true,
-            valor:true,
-            atualizadoEm:true,
-            criadoEm:true,
-            canceladoEm:true,
+            id: true,
+            metodo: true,
+            status: true,
+            tipo: true,
+            valor: true,
+            atualizadoEm: true,
+            criadoEm: true,
+            canceladoEm: true,
+            pedido: {
+              select: {
+                ItemPedido: true,
+                HistoricoPedido:true
+              }
+            },
+            pedidoId: true,
+            usuario: true
           },
           skip,
           take: limite,
@@ -360,18 +368,21 @@ export class PagamentosController {
         data: pagamentos.map(pagamento => ({
           id: pagamento.id,
           metodo: pagamento.metodo,
-          status:pagamento.status,
-          tipo:pagamento.tipo,
-          valor:pagamento.valor,
-          criadoEm:pagamento.criadoEm.toISOString(),
-          atualizadoEm:pagamento.atualizadoEm.toISOString(),
+          status: pagamento.status,
+          tipo: pagamento.tipo,
+          valor: pagamento.valor,
+          criadoEm: pagamento.criadoEm.toISOString(),
+          atualizadoEm: pagamento.atualizadoEm.toISOString(),
+          pedido: pagamento.pedido,
+          pedidoId: pagamento.pedidoId,
+          usuario: pagamento.usuario
         })),
         pagination: {
           page: pagina,
           limit: limite,
           total,
           totalPages: Math.ceil(total / limite)
-        } 
+        }
       });
     } catch (error) {
       console.error('❌ Erro ao listar pagamentos:', error);

@@ -48,6 +48,21 @@ model Endereco {
   Pedido  Pedido[]
 }
 
+model Estoque {
+  id        String      @id @default(uuid())
+  nome      String
+  descricao String?
+  foto      String?
+  preco     Float
+  quantidade  Int
+  id_categoria    String    @map("id_categoria")
+  status        StatusProduto     @default(ATIVO)
+  criadoEm    DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  Categoria       Categoria?      @relation(fields: [id_categoria], references: [id])
+  ImagemProduto   ImagemProduto[]
+}
 model Produto {
   id               String        @id @default(uuid())
   nome             String
@@ -72,20 +87,24 @@ model Categoria {
   nome      String   @unique
   descricao String?
   criadoEm  DateTime @default(now())
+  foto      String?  // URL da foto da categoria
 
   Produto Produto[]
+  Estoque Estoque[]
 }
 
 model ImagemProduto {
   id        String  @id @default(uuid())
   produtoId String
+  estoqueId String
   url       String
   ordem     Int     @default(0)
   principal Boolean @default(false)
 
   produto Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  estoque Estoque @relation(fields: [estoqueId],references: [id], onDelete: Cascade)
 
-  @@index([produtoId])
+  @@index([produtoId, estoqueId])
 }
 
 model Carrinho {
