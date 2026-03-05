@@ -1,71 +1,119 @@
-// src/model/user.ts
-import { prisma } from '@/lib/prisma';
-import { Usuario } from '@prisma/client';
+import { updateData } from "../interface/user";
+import { prisma } from "../config/prisma";
 
-export const userModel = {
-    /**
-     * Busca usuário por ID
-     */
-    async getById(id: string): Promise<Usuario | null> {
-        if (!id) return null;
-        
-        return prisma.usuario.findUnique({
-            where: { id }
-        });
-    },
-
-    /**
-     * Busca usuário por email
-     */
-    async getByEmail(email: string): Promise<Usuario | null> {
-        if (!email) return null;
-        
-        return prisma.usuario.findUnique({
-            where: { email }
-        });
-    },
-
-    /**
-     * Busca usuário por nome
-     */
-    async getByName(nome: string): Promise<Usuario | null> {
-        if (!nome) return null;
-        
-        return prisma.usuario.findFirst({
-            where: { nome }
-        });
-    },
-
-    /**
-     * Cria um novo usuário
-     */
-    async create(data: Partial<Usuario>): Promise<Usuario> {
-        return prisma.usuario.create({
-            data: {
-                nome: data.nome!,
-                email: data.email!,
-                senhaHash: data.senhaHash!,
-                tipo: data.tipo || 'CLIENTE'
+class UserModel {
+    protected user = prisma.usuario
+    async getByName(nome: string){
+        return await this.user.findFirst({
+            where: {
+                nome
+            },
+            include: {
+                Pedido:true,
+                Pagamento:true,
+                Reembolso:true
             }
-        });
-    },
-
-    /**
-     * Atualiza um usuário
-     */
-    async update(id: string, data: Partial<Usuario>): Promise<Usuario | null> {
-        return prisma.usuario.update({
-            where: { id },
-            data
-        }).catch(() => null);
-    },
-
-    /**
-     * Remove um usuário
-     */
-    async delete(id: string): Promise<boolean> {
-        return prisma.usuario.delete({
-            where: { id }
-        }).then(() => true).catch(() => false);
+        })
     }
-};
+
+        async getByEmail(email: string){
+        return await this.user.findFirst({
+            where: {
+                email
+            },
+            include: {
+                Pedido:true,
+                Pagamento:true,
+                Reembolso:true
+            }
+        })
+    }
+
+      async FindByEmail(email: string){
+        return await this.user.findFirst({
+            where: {
+                email
+            },
+            select: {
+                nome: true,
+                fotoUrl: true,
+                email:true,
+                telefone:true
+            }
+        })
+    }
+
+
+    async FindByName(nome: string){
+        return await this.user.findFirst({
+            where: {
+                nome
+            },
+            select: {
+                nome: true,
+                fotoUrl: true,
+                email:true,
+                telefone:true
+            }
+        })
+    }
+
+    private async getById(id:string){
+        return await this.user.findFirst({
+            where: {
+                id
+            },
+        })
+    }
+
+      async updateEmail({id, email}: updateData ){
+        const data = await this.getById(id)
+        if (!data) {
+            throw new Error("Usuário não encontrado")
+        }
+        return await this.user.update({
+            where:{
+                id: data.id
+            },
+            data:{
+            email:email
+            }
+        })
+    }
+
+    async updateNome({id, nome}: updateData ){
+        const data = await this.getById(id)
+        if (!data) {
+            throw new Error("Usuário não encontrado")
+        }
+        return await this.user.update({
+            where:{
+                id: data.id
+            },
+            data:{
+            nome:nome
+            }
+        })
+    }
+ async upload(nome: string,fotoUrl: string){
+        const user = await this.getByName(nome)
+        if (!user) {
+            throw new Error("user não encontrado")
+        }
+        return await this.user.update({
+            where: {
+                id: user.id
+            }, data: {
+                    fotoUrl: fotoUrl
+            },
+            select: {
+                nome:true,
+                fotoUrl:true,
+                telefone:true,
+                email:true
+            }
+        })
+    }
+}
+
+export const userModel = new UserModel();

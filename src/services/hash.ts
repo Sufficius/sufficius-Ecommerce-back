@@ -1,20 +1,14 @@
-// src/services/hash.ts
-import bcrypt from 'bcrypt';
+import bcrypt from "bcrypt";
 
-const SALT_ROUNDS = 10;
-
-export const hashService = {
-    /**
-     * Gera um hash de uma senha
-     */
-    async hashPassword(senha: string): Promise<string> {
-        return bcrypt.hash(senha, SALT_ROUNDS);
-    },
-
-    /**
-     * Compara uma senha com um hash
-     */
-    async comparePassword(senha: string, hash: string): Promise<boolean> {
-        return bcrypt.compare(senha, hash);
+class Hash {
+    async hashPassword(senha: string){
+        const saltRounds = 10;
+        return await bcrypt.hash(senha, saltRounds);
     }
-};
+
+    async comparePassword(senha: string, hash:string){
+        return await bcrypt.compare(senha, hash);
+    }
+}
+
+export const hash = new Hash();
