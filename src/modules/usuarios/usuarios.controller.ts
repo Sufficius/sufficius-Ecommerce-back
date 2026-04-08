@@ -61,7 +61,7 @@ export class UsuariosController {
     try {
 
       // Verificar autenticação (apenas ADMIN pode criar usuários)
-      const usuarioAutenticado = request.usuario;
+      const usuarioAutenticado = request.user;
 
       if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
         return reply.status(403).send({
@@ -348,7 +348,7 @@ export class UsuariosController {
       const { nome, email, telefone, senha, tipo, dataNascimento } = request.body;
 
       // Verificar autenticação
-      const usuarioAutenticado = request.usuario;
+      const usuarioAutenticado = request.user;
 
       if (!usuarioAutenticado) {
         return reply.status(401).send({
@@ -512,7 +512,7 @@ export class UsuariosController {
       const { id } = request.params;
 
       // Verificar autenticação (apenas ADMIN pode deletar)
-      const usuarioAutenticado = request.usuario;
+      const usuarioAutenticado = request.user;
 
       if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
         return reply.status(403).send({
@@ -639,7 +639,7 @@ export class UsuariosController {
   // Obter perfil do usuário autenticado
   async obterPerfil(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const usuarioAutenticado = request.usuario;
+      const usuarioAutenticado = request.user;
 
       if (!usuarioAutenticado) {
         return reply.status(401).send({
@@ -707,7 +707,7 @@ export class UsuariosController {
       }
     
       // Verificar autenticação (apenas ADMIN pode alterar status)
-      const usuarioAutenticado = request.usuario;
+      const usuarioAutenticado = request.user;
 
       if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
         return reply.status(403).send({
@@ -767,7 +767,7 @@ export class UsuariosController {
     try {
       const { id } = request.params;
       // Verificar autenticação (apenas ADMIN pode resetar senha)
-      const usuarioAutenticado = request.usuario;
+      const usuarioAutenticado = request.user;
 
       if (!usuarioAutenticado || usuarioAutenticado.tipo !== 'ADMIN') {
         return reply.status(403).send({
