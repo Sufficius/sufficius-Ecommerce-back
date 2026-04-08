@@ -41,8 +41,8 @@ const loggerConfig = process.env.NODE_ENV === 'production' ? true : {
 const app = Fastify({
   logger: loggerConfig,
   bodyLimit: 20 * 1024 * 1024,
-  connectionTimeout: 60000,
-  keepAliveTimeout: 60000,
+  connectionTimeout: 30000,
+  keepAliveTimeout: 30000,
   maxParamLength: 500,
   disableRequestLogging: false,
 });
@@ -114,13 +114,13 @@ app.register(multipart, {
     fileSize: 50 * 1024 * 1024,
     files: 5
   },
-  attachFieldsToBody: true,
+  // attachFieldsToBody: true,
 });
 
 // Tipagem para o request com autenticação
 declare module 'fastify' {
   interface FastifyRequest {
-    usuario?: {
+    users?: {
       id: string;
       email: string;
       tipo: string;
@@ -150,7 +150,7 @@ app.addHook('onRequest', async (request, reply) => {
 
     // Verificar se a rota atual é pública
     const isPublicRoute = publicRoutes.some(route =>
-      request.url === route.path && request.method === route.method
+      request.method === route.method && request.url.startsWith(route.path.replace(':id',''))
     );
 
     if (isPublicRoute) {
@@ -188,10 +188,10 @@ app.addHook('onRequest', async (request, reply) => {
 
     try {
       // Verificar token JWT (jwtVerify lê o header Authorization automaticamente)
-      const decoded = await request.jwtVerify<{ id: string; email: string; tipo: string, fotoUrl: string }>(token as any);
+      const decoded = await request.jwtVerify<{ id: string; email: string; tipo: string, fotoUrl?: string }>();
 
       // Adicionar informações do usuário ao request
-      request.usuario = {
+      request.user = {
         id: decoded.id,
         email: decoded.email,
         tipo: decoded.tipo,
@@ -252,14 +252,13 @@ app.get('/debug/auth', async (request, reply) => {
       });
     }
 
-    const token = authHeader.substring(7);
     try {
       const decoded = await request.jwtVerify<{ id: string; email: string; tipo: string; fotoUrl: string }>();
 
       return reply.send({
         success: true,
         decodedToken: decoded,
-        requestUsuario: request.usuario,
+        requestUsuario: request.user,
         headers: {
           authorization: request.headers.authorization?.substring(0, 50) + '...',
           origin: request.headers.origin

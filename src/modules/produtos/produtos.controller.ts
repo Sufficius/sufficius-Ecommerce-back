@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import { getProductImageUrl, FALLBACK_PRODUCT_IMAGE } from '../../utils/cloudinary';
 import { uploadService } from '@/services/uploads/upload';
 import uploadRoutes from '../upload/upload';
+import { supabase } from '../../lib/supabase';
 
 // Interfaces
 interface ProdutoInput {
@@ -567,16 +568,99 @@ export class ProdutosController {
 
       // 2. AGORA processar o multipart
       const contentType = request.headers['content-type'] || '';
+      const isMultipart = contentType.includes('multipart/form-data');
       console.log("Content: ", contentType);
 
-
-
+      let fotoUrl: string | null = null;
       let dados = request.body as any;
 
       console.log('🔄 Processando dados multipart...');
 
       // Log dos dados recebidos
       console.log('📊 Dados recebidos do formulário:', { nome, preco, quantidade });
+
+
+      if(isMultipart){
+        try{
+          const data = await request.file();
+
+          if(data){
+               console.log('📸 Processando upload de imagem para Supabase...');
+
+                const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+          if (!validTypes.includes(data.mimetype)) {
+            return reply.status(400).send({
+              success: false,
+              message: "Tipo de arquivo não suportado. Use JPEG, PNG ou WebP"
+            });
+          }
+            // Validar tamanho (10MB)
+          if (data.file.bytesRead > 10 * 1024 * 1024) {
+            return reply.status(400).send({
+              success: false,
+              message: "Arquivo muito grande. Máximo 10MB"
+            });
+          }
+          const buffer = await data.toBuffer();
+          
+          // Gerar nome único para o arquivo
+          const fileExtension = data.filename.split('.').pop();
+          const fileName = `produtos/${randomUUID()}.${fileExtension}`;
+          const bucket = process.env.SUPABASE_BUCKET_PRODUTOS || 'produtos-imagens';
+
+            // Upload para Supabase
+          const { error: uploadError } = await supabase.storage
+            .from(bucket)
+            .upload(fileName, buffer, {
+              contentType: data.mimetype,
+              cacheControl: '3600',
+              upsert: false
+            });
+
+             if (uploadError) {
+            console.error('❌ Erro no upload para Supabase:', uploadError);
+            return reply.status(500).send({
+              success: false,
+              message: 'Erro ao fazer upload da imagem',
+              error: uploadError.message
+            });
+          }
+
+             const { data: { publicUrl } } = supabase.storage
+            .from(bucket)
+            .getPublicUrl(fileName);
+
+          fotoUrl = publicUrl;
+          
+          console.log('✅ Upload realizado para Supabase:', fotoUrl);
+
+           // Atualizar dados com os campos do formulário
+          const fields = data.fields || {};
+          dados = {
+            nome: fields.nome || dados.nome,
+            preco: fields.preco || dados.preco,
+            quantidade: fields.quantidade || dados.quantidade,
+            id_categoria: fields.id_categoria || dados.id_categoria,
+            descricao: fields.descricao || dados.descricao,
+            status: fields.status || dados.status || "ATIVO"
+          };
+          }
+        }
+        catch (uploadError) {
+        console.error('❌ Erro ao processar arquivo:', uploadError);
+        // Continua sem imagem se houver erro
+      }
+      }
+
+      console.log('📊 Dados recebidos:', dados);
+
+    
+    if (!dados) {
+      return reply.status(400).send({
+        success: false,
+        message: 'Campos obrigatórios: nome, preco, quantidade, id_categoria'
+      });
+    }
 
       // 4. Validar dados
       const validation = validateProdutoData(dados);
@@ -604,23 +688,19 @@ export class ProdutosController {
       // 6. Gerar IDs
       const produtoId = randomUUID();
 
-      let fotoUrl: string | null = null;
-      let cloudinaryId: string | null = null;
-
-
       console.log('💾 Criando produto no banco de dados...');
 
       // 7. Criar produto no banco
       const produto = await prisma.produto.create({
         data: {
           id: produtoId,
-          nome: nome!,
-          descricao: descricao,
-          preco: preco!,
-          quantidade: quantidade!,
-          foto: fotoUrl || null,
+          nome: nome,
+          descricao: descricao || null,
+          preco: parseFloat(preco),
+          quantidade: parseInt(quantidade),
+          foto: dados.foto,
           status: "ATIVO",
-          id_categoria: id_categoria!,
+          id_categoria: id_categoria,
         }
       });
       console.log(`✅ Produto criado no banco: ${produto.id}`);
@@ -635,13 +715,10 @@ export class ProdutosController {
               nome: true
             }
           },
-          ImagemProduto: true
         }
       });
 
       // 10. Construir resposta com URL do Cloudinary
-      const imagemPrincipal = produtoCriado?.ImagemProduto[0];
-
       const response = {
         id: produtoCriado?.id,
         nome: produtoCriado?.nome,
@@ -653,7 +730,6 @@ export class ProdutosController {
         categoria: produtoCriado?.Categoria?.nome || null,
         categoriaId: produtoCriado?.Categoria?.id || null,
         fotoUrl: produtoCriado?.foto,
-        publicId: imagemPrincipal?.id || null, // Incluir id
         criadoEm: produtoCriado?.criadoEm?.toISOString()
       };
 
@@ -741,93 +817,54 @@ export class ProdutosController {
         }
       }
 
-      // Atualizar produto
-      await prisma.produto.update({
-        where: { id },
-        data: updateData
-      });
-
-      // Gerenciar imagens do Cloudinary
-      if (deletarImagem && produtoExistente.foto) {
-        // Deletar do Cloudinary
-        await deleteFromCloudinary(produtoExistente.foto);
-        updateData.foto = null
-      }
-
-      if (imagemFile) {
-        try {
-
-          if (produtoExistente.foto) {
-            await deleteFromCloudinary(produtoExistente.foto);
+      if (dados.foto !== undefined) {
+      // Se veio null ou string vazia, remover imagem
+      if (dados.foto === null || dados.foto === '') {
+        if (produtoExistente.foto) {
+          // Deletar imagem antiga do Supabase
+          const oldFileName = produtoExistente.foto.split('/').pop();
+          if (oldFileName) {
+            await supabase.storage
+              .from('produtos-imagens')
+              .remove([`uploads/${oldFileName}`]);
           }
-          // Deletar imagens atuais do Cloudinary
-          const imagensAtuais = await prisma.imagemProduto.findMany({
-            where: { produtoId: id }
-          });
+        }
+        updateData.foto = null;
+      } 
 
-          for (const imagem of imagensAtuais) {
-            if (imagem.id) {
-              await deleteFromCloudinary(imagem.id);
-            }
+       else if (dados.foto !== produtoExistente.foto) {
+        // Deletar imagem antiga se existir
+        if (produtoExistente.foto) {
+          const oldFileName = produtoExistente.foto.split('/').pop();
+          if (oldFileName) {
+            await supabase.storage
+              .from('produtos-imagens')
+              .remove([`uploads/${oldFileName}`]);
           }
-
-          // Deletar registros do banco
-          await prisma.imagemProduto.deleteMany({
-            where: { produtoId: id }
-          });
-
-          // Limpar arquivos temporários
-          await deleteTempFiles(id);
-
-          // Salvar nova imagem no Cloudinary
-          const savedFile = await saveAndUploadToCloudinary(imagemFile, id);
-          updateData.foto = savedFile.id || savedFile.cloudinaryUrl;
-
-          await prisma.imagemProduto.create({
-            data: {
-              estoqueId: randomUUID(),
-              id: randomUUID(),
-              produtoId: id,
-              url: savedFile.cloudinaryUrl || '',
-              principal: true,
-            }
-          });
-
-        } catch (imageError: any) {
-          console.error('⚠️ Erro ao salvar nova imagem:', imageError.message);
         }
+        updateData.foto = dados.foto;
       }
+    }
 
-      const produtoAtualizado = await prisma.produto.update({
-        where: { id },
-        data: updateData,
-        include: {
-          Categoria: true
-        }
-      });
+    const produtoAtualizado = await prisma.produto.update({
+      where: { id },
+      data: updateData,
+      include: {
+        Categoria: true
+      }
+    });
 
+       console.log('✅ Produto atualizado:', {
+      id: produtoAtualizado.id,
+      nome: produtoAtualizado.nome,
+      foto: produtoAtualizado.foto
+    });
 
-      // Buscar produto atualizado
-      const produtoFinal = await prisma.produto.findUnique({
-        where: { id },
-        include: {
-          Categoria: true,
-          ImagemProduto: true
-        }
-      });
-
-      // Construir URLs das imagens (Cloudinary)
-      const produtoFormatado = {
-        ...produtoAtualizado,
-        imagemUrl: buildImageUrlFromFoto(produtoAtualizado.foto)
-      };
-
-      reply.send({
-        success: true,
-        message: 'Produto atualizado com sucesso',
-        data: produtoFormatado
-      });
-
+     reply.send({
+      success: true,
+      message: 'Produto atualizado com sucesso',
+      data: produtoAtualizado
+    });
     } catch (error: any) {
       console.error('❌ Erro ao atualizar produto:', error);
 

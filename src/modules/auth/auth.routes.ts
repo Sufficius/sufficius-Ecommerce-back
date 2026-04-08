@@ -1086,6 +1086,7 @@ export default async function authRoutes(app: FastifyInstance) {
         id: user.id,
         email: user.email,
         tipo: user.tipo,
+        fotoUrl: user.fotoUrl || ""
       }, {
         expiresIn: "7d"
       });
@@ -1101,6 +1102,7 @@ export default async function authRoutes(app: FastifyInstance) {
           nome: user.nome,
           email: user.email,
           tipo: user.tipo,
+          fotoUrl: user.fotoUrl,
           googleId: payload.sub
         }
       });
@@ -1339,7 +1341,8 @@ export default async function authRoutes(app: FastifyInstance) {
       const token = app.jwt.sign({
         id: user.id,
         email: user.email,
-        tipo: user.tipo
+        tipo: user.tipo,
+        fotoUrl:user.fotoUrl || ""
       }, {
         expiresIn: "7d"
       });
@@ -1355,6 +1358,7 @@ export default async function authRoutes(app: FastifyInstance) {
           nome: user.nome,
           email: user.email,
           tipo: user.tipo,
+          fotoUrl: user.fotoUrl,
           role: user.tipo === "ADMIN" ? "ADMIN" : "CLIENTE"
         }
       });
