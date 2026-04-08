@@ -2,6 +2,7 @@
 import { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { randomUUID } from 'crypto';
+import { success } from 'zod';
 
 export class CarrinhoController {
   async obterCarrinho(request: FastifyRequest, reply: FastifyReply) {
@@ -19,7 +20,7 @@ export class CarrinhoController {
                   id: true,
                   nome: true,
                   preco: true,
-                  foto:true,
+                  foto: true,
                   quantidade: true,
                   ImagemProduto: {
                     where: { principal: true },
@@ -50,7 +51,7 @@ export class CarrinhoController {
                     nome: true,
                     preco: true,
                     quantidade: true,
-                    foto:true,
+                    foto: true,
                     ImagemProduto: {
                       where: { principal: true },
                       take: 1
@@ -84,7 +85,7 @@ export class CarrinhoController {
               id: item.produto?.id,
               nome: item.produto?.nome,
               preco: item.produto?.preco,
-              foto:item.produto?.foto,
+              foto: item.produto?.foto,
               quantidadeEstoque: item.produto?.quantidade,
               imagem: item.produto?.ImagemProduto?.[0]?.url,
               imagemAlt: item.produto?.ImagemProduto?.[0]?.ordem
@@ -282,7 +283,7 @@ export class CarrinhoController {
       });
 
 
-  
+
       if (!carrinhoAtualizado) {
         throw new Error('Carrinho não encontrado após adicionar item');
       }
@@ -323,7 +324,7 @@ export class CarrinhoController {
         desconto: 0,
         total: valorTotal
       }
-   
+
       return reply.send({
         success: true,
         message: 'Item adicionado ao carrinho',
@@ -373,9 +374,9 @@ export class CarrinhoController {
 
       // Buscar carrinho
       const carrinho = await prisma.carrinho.findFirst({
-        where: { 
+        where: {
           id: id,
-         }
+        }
       });
 
 
@@ -518,11 +519,17 @@ export class CarrinhoController {
     });
 
     if (!cart) {
-      return reply.code(404).send({ message: "Carrinho não encontrado" });
+      return reply.code(200).send({
+        totalItens: 0,
+      });
     }
 
     const itemCount = cart.ItemCarrinho.length;
-    reply.send({ itemCount });
+
+    console.log("🍀🍀🍀 Total: ", itemCount);
+    reply.send({
+      totalItens: itemCount,
+    });
   }
 
   async removerItem(
