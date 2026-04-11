@@ -12,7 +12,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
-    "render-build": "npm ci --omit=dev && npm run prisma:generate",
+    "render-build": "npm ci --omit=dev && npm run build",
     "render-start": "node dist/server.js"
 },
   "prisma": {
