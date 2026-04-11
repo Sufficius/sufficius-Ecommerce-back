@@ -2,7 +2,6 @@
 import { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { randomUUID } from 'crypto';
-import { success } from 'zod';
 
 export class CarrinhoController {
   async obterCarrinho(request: FastifyRequest, reply: FastifyReply) {

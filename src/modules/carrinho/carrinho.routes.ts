@@ -249,54 +249,91 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
         });
       }
 
+      // // 2. AGORA processar o multipart
+      // const contentType = request.headers['content-type'] || '';
+      // const isMultipart = contentType.includes('multipart/form-data');
+      // console.log("Content: ", contentType);
+
       const parts = request.parts();
+      // let dados = request.body as any;
       let userId = '';
       let location = '';
       let phone = '';
-      let paymentProofFile: any = null;
+      let paymentProofBuffer: Buffer | null = null;
+      let paymentProofFilename = '';
+      let paymentProofMimetype = '';
+
+
+      console.log('📊 Dados recebidos do formulário:', { userId, location, phone, paymentProofFilename });
 
       for await (const part of parts) {
         if (part.type === 'field') {
           if (part.fieldname === 'userId') userId = part.value as string;
           if (part.fieldname === 'location') location = part.value as string;
           if (part.fieldname === 'phone') phone = part.value as string;
+        console.log(`📝 Campo: ${part.fieldname} = ${part.value}`);
         } else if (part.type === 'file') {
-          if (part.fieldname === 'paymentProof') {
-            paymentProofFile = part;
-            console.log('📎 Arquivo recebido:', {
-              filename: part.filename,
-              mimetype: part.mimetype,
-              fieldname: part.fieldname
-            });
-          }
+          console.log(`📎 Arquivo recebido: ${part.filename}, tipo: ${part.mimetype}`);
+            paymentProofFilename = part.filename;
+            paymentProofMimetype = part.mimetype;
+            paymentProofBuffer = await part.toBuffer();
         }
       }
 
-      if (!userId || !location || !phone || !paymentProofFile) {
+      if (!userId) {
         return reply.status(400).send({
           success: false,
-          message: "Campos obrigatórios não preenchidos"
+          message: "ID do usuário é obrigatório"
         });
       }
 
+      if (!location) {
+        return reply.status(400).send({
+          success: false,
+          message: "Localização é obrigatória"
+        });
+      }
+
+      if (!phone) {
+        return reply.status(400).send({
+          success: false,
+          message: "Telefone é obrigatório"
+        });
+      }
+
+      if (!paymentProofBuffer) {
+        return reply.status(400).send({
+          success: false,
+          message: "Comprovativo de pagamento é obrigatório"
+        });
+      }
+
+
+      // if (!userId || !location || !phone || !paymentProofFile) {
+      //   return reply.status(400).send({
+      //     success: false,
+      //     message: "Campos obrigatórios não preenchidos"
+      //   });
+      // }
+
       // Validar tipo do arquivo
       const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
-      if (!validTypes.includes(paymentProofFile.mimetype)) {
+      if (!validTypes.includes(paymentProofMimetype)) {
         return reply.status(400).send({
           success: false,
           message: "Tipo de arquivo não suportado. Use JPEG, PNG, WebP ou PDF"
         });
       }
 
-      const buffer = await paymentProofFile.toBuffer();
-
       // Validar tamanho (10MB)
-      if (buffer.length > 10 * 1024 * 1024) {
-        return reply.status(400).send({
-          success: false,
-          message: "Arquivo muito grande. Máximo 10MB"
-        });
-      }
+    if (paymentProofBuffer.length > 10 * 1024 * 1024) {
+      return reply.status(400).send({
+        success: false,
+        message: "Arquivo muito grande. Máximo 10MB"
+      });
+    } 
+
+      console.log(`📦 Tamanho do arquivo: ${(paymentProofBuffer.length / 1024).toFixed(2)}KB`);
 
       const cartCount = await prisma.itemCarrinho.count({
         where: {
@@ -317,20 +354,11 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
         where: { usuarioId: userId },
         include: {
           ItemCarrinho: {
-            select: {
-              id: true,
-              produtoId: true,
-              quantidade: true,
-              produto: {
-                select: {
-                  nome: true,
-                  preco: true,
-                  quantidade: true
-                }
+            include: {
+              produto: true,
               }
             }
           }
-        }
       });
 
       if (!cart || cart.ItemCarrinho.length === 0) {
@@ -365,11 +393,35 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
         sum + (item.quantidade * item.produto.preco), 0
       );
 
+      const fileExtension = paymentProofFilename.split('.').pop();
+      const fileName = `comprovativos/${Date.now()}_${userId.substring(0,8)}.${fileExtension}`;
+
+      console.log("📤 Fazendo upload para:", fileName);
+
+      // TENTAR UPLOAD COM VERIFICAÇÃO
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('sufficius-files')
+        .upload(fileName, paymentProofBuffer, {
+          contentType: paymentProofMimetype,
+          cacheControl: '3600',
+          upsert: false
+        });
+
+
+      if (uploadError) {
+        console.log("❌ Erro no upload: ", uploadError);
+      return reply.status(500).send({
+          success: false,
+          message: `Erro ao fazer upload do comprovativo: ${uploadError.message}`,
+        });
+      }
+
+      console.log("✅ Upload realizado com sucesso:", uploadData);
 
       const pedido = await prisma.pedido.create({
         data: {
           id: randomUUID(),
-          numeroPedido: `${Math.floor(Math.random() * 10000)}`,
+          numeroPedido: `${Math.floor(Math.random() * 10000)}${Date.now()}`,
           usuarioId: userId,
           enderecoId: endereco.id,
           status: "PAGAMENTO_PENDENTE",
@@ -383,9 +435,9 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
         }
       });
 
-      console.log('✅ Pedido criado com sucesso:', pedido);
+      console.log('✅ Pedido criado com sucesso:', pedido.numeroPedido);
 
-
+      // Criar itens do pedido
       await prisma.itemPedido.createMany({
         data: cart.ItemCarrinho.map(item => ({
           id: randomUUID(),
@@ -397,56 +449,32 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
         }))
       });
 
-      const fileName = `comprovativos/${Date.now()}_${paymentProofFile.filename}`;
 
-      supabase.storage.from('sufficius-files')
-        .upload(fileName, buffer, {
-          contentType: paymentProofFile.mimetype,
-          upsert: false
-        }).then(async ({ error }) => {
-          if (error) {
-            console.error("❌ Erro no upload em background:", error);
+       await prisma.pagamento.create({
+        data: {
+          id: randomUUID(),
+          usuarioId: userId,
+          pedidoId: pedido.id,
+          valor: total,
+          metodo: "TRANSFERENCIA_BANCARIA",
+          status: "PENDENTE",
+          comprovativoUrl: fileName
+        }
+      });
 
-            await prisma.pedido.update({
-              where: { id: pedido.id },
-              data: {
-                observacoes: `ERRO_UPLOAD: ${error.message}`,
-                statusPagamento: "FALHOU"
-              }
-            });
-            return;
-          }
-
-          await prisma.$transaction([
-
-            prisma.pagamento.create({
-              data: {
-                id: randomUUID(),
-                usuarioId: userId,
-                pedidoId: pedido.id,
-                valor: total,
-                metodo: "TRANSFERENCIA_BANCARIA",
-                status: "PENDENTE",
-                comprovativoUrl: fileName
-              }
-            }),
-            ...cart.ItemCarrinho.map(item =>
-              prisma.produto.update({
-                where: { id: item.produtoId },
-                data: { quantidade: { decrement: item.quantidade } }
-              })
-            ),
-            prisma.carrinho.delete({
-              where: { id: cart.id }
-            })
-          ]);
-
-          console.log(`✅ Pedido ${pedido.numeroPedido} processado completamente`);
-        }).catch(error => {
-          console.error("❌ Erro fatal no processamento: ", error);
+      for (const item of cart.ItemCarrinho) {
+        await prisma.produto.update({
+          where: { id: item.produtoId },
+          data: { quantidade: { decrement: item.quantidade } }
         });
+      }
 
-      console.log(`✅ Pedido ${pedido.numeroPedido} criado, processamento em background`);
+      await prisma.carrinho.delete({
+        where: { id: cart.id }
+      });
+
+
+      console.log(`✅ Pedido ${pedido.numeroPedido} processado com sucesso`);
 
       return reply.status(200).send({
         success: true,
@@ -454,10 +482,9 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
         data: {
           pedidoId: pedido.numeroPedido,
           total: total,
-          status: "PROCESSANDO"
+          status: "CONCLUIDO"
         }
       });
-
     } catch (error) {
       console.error('❌ Erro no checkout:', error);
       return reply.status(500).send({
