@@ -32,22 +32,6 @@ interface BuscarCategoriaPorIdRoute {
   };
 }
 
-interface BuscarCategoriaPorSlugRoute {
-  Params: {
-    slug: string;
-  };
-  Reply: {
-    200: {
-      success: boolean;
-      data: any;
-    };
-    404: {
-      success: boolean;
-      message: string;
-    };
-  };
-}
-
 interface ListarCategoriasHierarquiaRoute {
   Reply: {
     200: {
@@ -61,8 +45,6 @@ interface CriarCategoriaRoute {
   Body: {
     nome: string;
     descricao?: string;
-    slug: string;
-    paiId?: string;
   };
   Reply: {
     201: {
@@ -84,8 +66,6 @@ interface AtualizarCategoriaRoute {
   Body: {
     nome?: string;
     descricao?: string;
-    slug?: string;
-    paiId?: string;
   };
   Reply: {
     200: {
@@ -143,7 +123,7 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     },
     categoriasController.listarCategorias.bind(categoriasController)
   );
-  
+
   // Listar hierarquia de categorias
   app.get<ListarCategoriasHierarquiaRoute>(
     '/hierarquia',
@@ -162,7 +142,7 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     },
     categoriasController.listarCategoriasHierarquia.bind(categoriasController)
   );
-  
+
   // Buscar categoria por ID
   app.get<BuscarCategoriaPorIdRoute>(
     '/:id',
@@ -195,42 +175,10 @@ export default async function categoriasRoutes(app: FastifyInstance) {
     },
     categoriasController.buscarCategoriaPorId.bind(categoriasController)
   );
-  
-  // Buscar categoria por slug
-  app.get<BuscarCategoriaPorSlugRoute>(
-    '/slug/:slug',
-    {
-      schema: {
-        params: {
-          type: 'object',
-          properties: {
-            slug: { type: 'string' }
-          },
-          required: ['slug']
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              data: { type: 'object' }
-            }
-          },
-          404: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' }
-            }
-          }
-        }
-      }
-    },
-    categoriasController.buscarCategoriaPorSlug.bind(categoriasController)
-  );
+
 
   // Rotas protegidas (apenas admin)
-  
+
   // Criar categoria
   app.post<CriarCategoriaRoute>(
     '/',
@@ -239,12 +187,10 @@ export default async function categoriasRoutes(app: FastifyInstance) {
       schema: {
         body: {
           type: 'object',
-          required: ['nome', 'slug'],
+          required: ['nome'],
           properties: {
             nome: { type: 'string' },
             descricao: { type: 'string' },
-            slug: { type: 'string' },
-            paiId: { type: 'string' }
           }
         },
         response: {
@@ -287,8 +233,6 @@ export default async function categoriasRoutes(app: FastifyInstance) {
           properties: {
             nome: { type: 'string' },
             descricao: { type: 'string' },
-            slug: { type: 'string' },
-            paiId: { type: 'string' }
           }
         },
         response: {

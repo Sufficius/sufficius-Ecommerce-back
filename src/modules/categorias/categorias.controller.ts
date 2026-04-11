@@ -72,58 +72,6 @@ export class CategoriasController {
     }
   }
 
-  async buscarCategoriaPorSlug(
-    request: FastifyRequest<{ Params: { slug: string } }>,
-    reply: FastifyReply
-  ) {
-    try {
-      const { slug } = request.params;
-
-      // Se slug não for um campo no seu schema, remova esta função
-      // ou substitua por busca por outro campo (nome, por exemplo)
-      const categoria = await prisma.categoria.findFirst({
-        where: {
-          // slug: slug // Substitua por campo correto
-          nome: slug // Exemplo alternativo
-        },
-        include: {
-          // categoria: true,
-          // other_categoria: true,
-          Produto: {
-            // where: { ativo: true }, // Remova se ativo não existir
-            select: {
-              id: true,
-              nome: true,
-              preco: true,
-              ImagemProduto: {
-                where: { principal: true },
-                take: 1
-              }
-            }
-          }
-        }
-      });
-
-      if (!categoria) {
-        return reply.status(404).send({
-          success: false,
-          message: 'Categoria não encontrada'
-        });
-      }
-
-      reply.send({
-        success: true,
-        data: categoria
-      });
-    } catch (error) {
-      console.error('Erro ao buscar categoria por slug:', error);
-      reply.status(500).send({
-        success: false,
-        message: 'Erro ao buscar categoria'
-      });
-    }
-  }
-
   async criarCategoria(
     request: FastifyRequest<{
       Body: {
@@ -141,7 +89,6 @@ export class CategoriasController {
           // id: `cat_${Date.now()}`, // Remova se usar UUID automático
           nome,
           descricao,
-          // slug, // Apenas se o campo existir
           // paiId // Apenas se o campo existir
         }
       });
