@@ -19,6 +19,7 @@ import itemcarrinhoRoutes from "./modules/itemcarrinho/itemcarrinho.route";
 import { join } from "path";
 import uploadRoutes from "./modules/upload/upload";
 import estoqueRoutes from "./modules/estoque/estoque.routes";
+import { prisma } from "./lib/prisma";
 
 dotenv.config();
 
@@ -305,5 +306,20 @@ app.setErrorHandler(function (error: any, request, reply) {
     message: process.env.NODE_ENV === 'development' ? error.message : 'Contate o administrador'
   });
 });
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, closing server...')
+  await app.close()
+  await prisma.$disconnect()
+  process.exit(0)
+})
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, closing server...')
+  await app.close()
+  await prisma.$disconnect()
+  process.exit(0)
+})
 
 export default app;
