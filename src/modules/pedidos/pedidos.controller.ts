@@ -657,10 +657,6 @@ export class PedidosController {
                 if (resultadoSMS.success) smsEnviado = true;
             }
 
-
-
-
-
             // ENVIAR SMS QUANDO CANCELAR
             if (status === 'CANCELADO' && pedido.usuario?.telefone && motivoCancelamento) {
                 console.log(`📱 Enviando SMS de cancelamento para ${pedido.usuario.telefone}...`);
