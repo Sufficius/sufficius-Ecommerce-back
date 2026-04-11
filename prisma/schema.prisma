@@ -12,7 +12,7 @@ model Usuario {
   id              String        @id @default(uuid())
   nome            String
   email           String        @unique
-  telefone        String?        @unique
+  telefone        String?       @unique
   senhaHash       String
   fotoUrl         String?
   dataNascimento  DateTime?
@@ -49,31 +49,32 @@ model Endereco {
 }
 
 model Estoque {
-  id        String      @id @default(uuid())
-  nome      String
-  descricao String?
-  foto      String?
-  preco     Float
-  quantidade  Int
-  id_categoria    String    @map("id_categoria")
-  status        StatusProduto     @default(ATIVO)
-  criadoEm    DateTime @default(now())
-  atualizadoEm  DateTime @updatedAt
+  id           String        @id @default(uuid())
+  nome         String
+  descricao    String?
+  foto         String?
+  preco        Float
+  quantidade   Int
+  id_categoria String        @map("id_categoria")
+  status       StatusProduto @default(ATIVO)
+  criadoEm     DateTime      @default(now())
+  atualizadoEm DateTime      @updatedAt
 
-  Categoria       Categoria?      @relation(fields: [id_categoria], references: [id])
-  ImagemProduto   ImagemProduto[]
+  Categoria     Categoria?      @relation(fields: [id_categoria], references: [id])
+  ImagemProduto ImagemProduto[]
 }
+
 model Produto {
-  id               String        @id @default(uuid())
-  nome             String
-  descricao        String?
-  foto              String?      
-  preco            Float
-  quantidade       Int
-  id_categoria     String        @map("id_categoria")
-  status           StatusProduto @default(ATIVO)
-  criadoEm         DateTime      @default(now())
-  atualizadoEm     DateTime      @updatedAt
+  id           String        @id @default(uuid())
+  nome         String
+  descricao    String?
+  foto         String?
+  preco        Float
+  quantidade   Int
+  id_categoria String        @map("id_categoria")
+  status       StatusProduto @default(ATIVO)
+  criadoEm     DateTime      @default(now())
+  atualizadoEm DateTime      @updatedAt
 
   // Relações
   Categoria     Categoria?      @relation(fields: [id_categoria], references: [id])
@@ -87,7 +88,7 @@ model Categoria {
   nome      String   @unique
   descricao String?
   criadoEm  DateTime @default(now())
-  foto      String?  // URL da foto da categoria
+  foto      String? // URL da foto da categoria
 
   Produto Produto[]
   Estoque Estoque[]
@@ -102,7 +103,7 @@ model ImagemProduto {
   principal Boolean @default(false)
 
   produto Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-  estoque Estoque @relation(fields: [estoqueId],references: [id], onDelete: Cascade)
+  estoque Estoque @relation(fields: [estoqueId], references: [id], onDelete: Cascade)
 
   @@index([produtoId, estoqueId])
 }
@@ -199,17 +200,15 @@ model HistoricoPedido {
   @@index([pedidoId])
 }
 
-
-
 // TABELA: Pagamento
 model Pagamento {
-  id        String          @id @default(uuid())
-  pedidoId  String
-  usuarioId String
-  metodo    MetodoPagamento
-  status    StatusPagamento @default(PENDENTE)
-  tipo      TipoPagamento   @default(PAGAMENTO_PEDIDO)
-  valor     Float
+  id              String          @id @default(uuid())
+  pedidoId        String
+  usuarioId       String
+  metodo          MetodoPagamento
+  status          StatusPagamento @default(PENDENTE)
+  tipo            TipoPagamento   @default(PAGAMENTO_PEDIDO)
+  valor           Float
   comprovativoUrl String? // URL do comprovante de pagamento (para métodos manuais)
 
   // Dados específicos por método de pagamento
@@ -338,6 +337,8 @@ enum StatusProduto {
 
 enum StatusPedido {
   PAGAMENTO_PENDENTE
+  AGUARDANDO_CONFIRMACAO
+  APROVADO
   PROCESSANDO
   CONFIRMADO
   ENVIADO

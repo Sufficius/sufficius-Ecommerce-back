@@ -2,6 +2,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { randomUUID } from 'crypto';
+import { enviarSMS, gerarMensagemAprovacao, gerarMensagemCancelamento } from '../../services/sms.service';
 
 export class PedidosController {
     async meusPedidos(
@@ -68,137 +69,124 @@ export class PedidosController {
         }
     }
 
- async buscarPedidoPorId(
-    request: FastifyRequest<{ Params: { id: string } }>,
-    reply: FastifyReply
-) {
-    try {
-        const usuario = request.user as any;
-        const { id } = request.params;
-        
-        console.log("🔍 Buscando pedido - ID:", id);
-        console.log("👤 Usuário:", usuario.id, "Tipo:", usuario.tipo);
+    async buscarPedidoPorId(
+        request: FastifyRequest<{ Params: { id: string } }>,
+        reply: FastifyReply
+    ) {
+        try {
+            const usuario = request.user as any;
+            const { id } = request.params;
 
-        const pedido = await prisma.pedido.findUnique({
-            where: { id },
-            include: {
-                ItemPedido: {
-                    include: {
-                        produto: {
-                            include: {
-                                ImagemProduto: true
+            console.log("🔍 Buscando pedido - ID:", id);
+
+            const pedido = await prisma.pedido.findUnique({
+                where: { id },
+                include: {
+                    ItemPedido: {
+                        include: {
+                            produto: {
+                                include: {
+                                    ImagemProduto: true
+                                }
                             }
                         }
-                    }
-                },
-                endereco: true,
-                usuario: {
-                    select: {
-                        id: true,
-                        nome: true,
-                        email: true
+                    },
+                    endereco: true,
+                    usuario: {
+                        select: {
+                            id: true,
+                            nome: true,
+                            email: true,
+                            telefone: true
+                        }
                     }
                 }
+            });
+
+            if (!pedido) {
+                return reply.status(404).send({
+                    success: false,
+                    message: 'Pedido não encontrado'
+                });
             }
-        });
 
-        console.log("📦 Pedido encontrado?", !!pedido);
-        
-        if (!pedido) {
-            console.log("❌ Pedido não encontrado para ID:", id);
-            return reply.status(404).send({
-                success: false,
-                message: 'Pedido não encontrado'
-            });
+            if (pedido.usuarioId !== usuario.id && usuario.tipo !== 'ADMIN') {
+                return reply.status(403).send({
+                    success: false,
+                    message: 'Você não tem permissão para ver este pedido'
+                });
+            }
+
+            const dataToSend = {
+                id: pedido.id,
+                numeroPedido: pedido.numeroPedido,
+                status: pedido.status,
+                total: Number(pedido.total),
+                frete: Number(pedido.frete),
+                desconto: Number(pedido.desconto),
+                observacoes: pedido.observacoes,
+                criadoEm: pedido.criadoEm instanceof Date ? pedido.criadoEm.toISOString() : String(pedido.criadoEm),
+                atualizadoEm: pedido.atualizadoEm instanceof Date ? pedido.atualizadoEm.toISOString() : String(pedido.atualizadoEm),
+                usuarioId: pedido.usuarioId,
+                enderecoId: pedido.enderecoId,
+                statusPagamento: pedido.statusPagamento,
+                metodoPagamento: pedido.metodoPagamento,
+                metodoEnvio: pedido.metodoEnvio,
+                usuario: pedido.usuario ? {
+                    id: pedido.usuario.id,
+                    nome: pedido.usuario.nome,
+                    email: pedido.usuario.email,
+                    telefone: pedido.usuario.telefone
+                } : null,
+                endereco: pedido.endereco ? {
+                    id: pedido.endereco.id,
+                    rua: pedido.endereco.rua,
+                    numero: pedido.endereco.numero,
+                    bairro: pedido.endereco.bairro,
+                    cidade: pedido.endereco.cidade,
+                    estado: (pedido.endereco as any).provincia || '',
+                    cep: (pedido.endereco as any).cep || '',
+                    pais: 'Angola'
+                } : null,
+                ItemPedido: pedido.ItemPedido.map(item => ({
+                    id: item.id,
+                    quantidade: item.quantidade,
+                    precoUnitario: Number(item.precoUnitario),
+                    precoTotal: Number(item.precoTotal),
+                    produto: {
+                        id: item.produto.id,
+                        nome: item.produto.nome,
+                        preco: Number(item.produto.preco),
+                        foto: item.produto.foto,
+                        sku: (item.produto as any).sku || null,
+                        ImagemProduto: item.produto.ImagemProduto?.map(img => ({
+                            url: img.url,
+                            principal: img.principal
+                        })) || []
+                    }
+                }))
+            };
+
+            console.log("✅ Dados preparados, enviando resposta...");
+
+            return reply.status(200)
+                .header('Content-Type', 'application/json')
+                .send(JSON.stringify({
+                    success: true,
+                    data: dataToSend
+                }));
+
+        } catch (error) {
+            console.error('❌ Erro ao buscar pedido:', error);
+            return reply.status(500)
+                .header('Content-Type', 'application/json')
+                .send(JSON.stringify({
+                    success: false,
+                    message: 'Erro ao buscar pedido',
+                    error: error instanceof Error ? error.message : String(error)
+                }));
         }
-
-        // Verificar permissão
-        if (pedido.usuarioId !== usuario.id && usuario.tipo !== 'ADMIN') {
-            console.log("❌ Permissão negada para usuário:", usuario.id);
-            return reply.status(403).send({
-                success: false,
-                message: 'Você não tem permissão para ver este pedido'
-            });
-        }
-
-        console.log("✅ Pedido encontrado, serializando dados...");
-
-        // Serializar manualmente para evitar problemas de referência circular
-        const pedidoSerializado = {
-            id: pedido.id,
-            numeroPedido: pedido.numeroPedido,
-            status: pedido.status,
-            total: Number(pedido.total),
-            frete: Number(pedido.frete),
-            desconto: Number(pedido.desconto),
-            observacoes: pedido.observacoes || null,
-            criadoEm: pedido.criadoEm,
-            atualizadoEm: pedido.atualizadoEm,
-            usuarioId: pedido.usuarioId,
-            enderecoId: pedido.enderecoId,
-            statusPagamento: pedido.statusPagamento,
-            metodoPagamento: pedido.metodoPagamento,
-            metodoEnvio: pedido.metodoEnvio,
-            referenciaPagamento: pedido.referenciaPagamento,
-            dataPagamento: pedido.dataPagamento,
-            codigoRastreio: pedido.codigoRastreio,
-            dataEntrega: pedido.dataEntrega,
-            entregueEm: pedido.entregueEm,
-            usuario: pedido.usuario ? {
-                id: pedido.usuario.id,
-                nome: pedido.usuario.nome,
-                email: pedido.usuario.email
-            } : null,
-            endereco: pedido.endereco ? {
-                id: pedido.endereco.id,
-                rua: pedido.endereco.rua,
-                numero: pedido.endereco.numero,
-                bairro: pedido.endereco.bairro,
-                cidade: pedido.endereco.cidade,
-                provincia: (pedido.endereco as any).provincia || '',
-                cep: (pedido.endereco as any).cep || '',
-                telefone: (pedido.endereco as any).telefone || '',
-                complemento: (pedido.endereco as any).complemento || null
-            } : null,
-            ItemPedido: pedido.ItemPedido.map(item => ({
-                id: item.id,
-                quantidade: item.quantidade,
-                precoUnitario: Number(item.precoUnitario),
-                precoTotal: Number(item.precoTotal),
-                produto: {
-                    id: item.produto.id,
-                    nome: item.produto.nome,
-                    preco: Number(item.produto.preco),
-                    foto: item.produto.foto || null,
-                    descricao: item.produto.descricao,
-                    sku: (item.produto as any).sku || null,
-                    quantidade: item.produto.quantidade,
-                    ImagemProduto: item.produto.ImagemProduto?.map(img => ({
-                        id: img.id,
-                        url: img.url,
-                        principal: img.principal,
-                        ordem: img.ordem
-                    })) || []
-                }
-            }))
-        };
-
-        console.log("✅ Dados serializados com sucesso");
-        
-        reply.send({
-            success: true,
-            data: pedidoSerializado
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro ao buscar pedido:', error);
-        reply.status(500).send({
-            success: false,
-            message: 'Erro ao buscar pedido',
-            error: error instanceof Error ? error.message : String(error)
-        });
     }
-}
 
     async criarPedido(
         request: FastifyRequest<{
@@ -215,7 +203,6 @@ export class PedidosController {
             const usuario = request.user as any;
             const { enderecoId, metodoPagamento = "DINHEIRO_ENTREGA", observacoes, cupom } = request.body;
 
-
             if (!enderecoId) {
                 return reply.status(400).send({
                     success: false,
@@ -223,8 +210,6 @@ export class PedidosController {
                 });
             }
 
-
-            // Buscar carrinho do usuário
             const carrinho = await prisma.carrinho.findUnique({
                 where: { usuarioId: usuario.id },
                 include: {
@@ -243,14 +228,6 @@ export class PedidosController {
                 }
             });
 
-            if (!carrinho) {
-                return reply.status(400).send({
-                    success: false,
-                    message: 'Carrinho não encontrado'
-                });
-            }
-
-
             if (!carrinho || carrinho.ItemCarrinho.length === 0) {
                 return reply.status(400).send({
                     success: false,
@@ -258,7 +235,6 @@ export class PedidosController {
                 });
             }
 
-            // Verificar endereço
             const endereco = await prisma.endereco.findFirst({
                 where: {
                     id: enderecoId,
@@ -273,7 +249,6 @@ export class PedidosController {
                 });
             }
 
-            // Verificar estoque e calcular valores
             const itensSemEstoque: string[] = [];
 
             for (const item of carrinho.ItemCarrinho) {
@@ -281,16 +256,7 @@ export class PedidosController {
 
                 if (estoqueDisponivel < item.quantidade) {
                     itensSemEstoque.push(`${item.produto.nome} (disponível: ${estoqueDisponivel}, solicitado: ${item.quantidade})`);
-                    continue;
-                    // return reply.status(400).send({
-                    //     success: false,
-                    //     message: `Produto "${item.produto.nome}" está com estoque insuficiente`
-                    // });
                 }
-
-                const preco = item.produto?.preco;
-                const itemTotal = preco * item.quantidade;
-
             }
 
             if (itensSemEstoque.length > 0) {
@@ -301,15 +267,12 @@ export class PedidosController {
                 });
             }
 
-            // Cálculos simplificados (em produção, calcular frete e impostos reais)
-            const frete = 0; // Valor fixo de exemplo
+            const frete = 0;
             const valorDesconto = 0;
-            const total =  frete + valorDesconto;
+            const total = carrinho.ItemCarrinho.reduce((sum, item) => sum + (item.produto.preco * item.quantidade), 0) + frete - valorDesconto;
 
-            // Gerar número do pedido
-            const numeroPedido = randomUUID();
+            const numeroPedido = randomUUID().substring(0, 8).toUpperCase();
 
-            // Criar pedido
             const pedido = await prisma.pedido.create({
                 data: {
                     id: randomUUID(),
@@ -327,7 +290,6 @@ export class PedidosController {
                 }
             });
 
-            // Criar itens do pedido
             for (const item of carrinho.ItemCarrinho) {
                 const preco = item.produto.preco;
 
@@ -350,7 +312,6 @@ export class PedidosController {
                 });
             }
 
-            // Limpar carrinho
             await prisma.itemCarrinho.deleteMany({
                 where: { carrinhoId: carrinho.id }
             });
@@ -388,11 +349,18 @@ export class PedidosController {
             const { id } = request.params;
             const { motivo } = request.body;
 
-            // Buscar pedido
             const pedido = await prisma.pedido.findUnique({
                 where: { id },
                 include: {
                     ItemPedido: true,
+                    usuario: {
+                        select: {
+                            id: true,
+                            nome: true,
+                            email: true,
+                            telefone: true
+                        }
+                    }
                 }
             });
 
@@ -403,7 +371,6 @@ export class PedidosController {
                 });
             }
 
-            // Verificar permissão
             if (pedido.usuarioId !== usuario.id && usuario.tipo !== 'ADMIN') {
                 return reply.status(403).send({
                     success: false,
@@ -411,7 +378,6 @@ export class PedidosController {
                 });
             }
 
-            // Verificar se pode cancelar
             if (!['PAGAMENTO_PENDENTE', 'AGUARDANDO_PAGAMENTO', 'PROCESSANDO'].includes(pedido.status)) {
                 return reply.status(400).send({
                     success: false,
@@ -419,39 +385,19 @@ export class PedidosController {
                 });
             }
 
-            // Atualizar pedido
             const pedidoAtualizado = await prisma.pedido.update({
                 where: { id },
                 data: {
-                    status: 'CANCELADO'
+                    status: 'CANCELADO',
+                    observacoes: motivo
                 }
             });
 
-            // Devolver itens ao estoque
             for (const item of pedido.ItemPedido) {
-                if (item.id) {
-                    await prisma.produto.update({
-                        where: { id: item.id },
-                        data: {
-                            quantidade: { increment: item.quantidade }
-                        }
-                    });
-                } else {
-                    await prisma.produto.update({
-                        where: { id: item.produtoId },
-                        data: {
-                            quantidade: { increment: item.quantidade }
-                        }
-                    });
-                }
-            }
-
-            // Cancelar pagamento se existir
-            if (pedido.metodoPagamento.length > 0) {
-                await prisma.pedido.updateMany({
-                    where: { usuarioId: id },
+                await prisma.produto.update({
+                    where: { id: item.produtoId },
                     data: {
-                        status: 'CANCELADO'
+                        quantidade: { increment: item.quantidade }
                     }
                 });
             }
@@ -470,8 +416,6 @@ export class PedidosController {
         }
     }
 
-    // Métodos para administradores
-
     async listarPedidos(
         request: FastifyRequest<{
             Querystring: {
@@ -485,7 +429,6 @@ export class PedidosController {
         }>,
         reply: FastifyReply
     ) {
-        const usuario = request.user as any
         try {
             const { page = '1', limit = '20', status, dataInicio, dataFim, busca } = request.query;
 
@@ -510,21 +453,14 @@ export class PedidosController {
             if (busca) {
                 where.OR = [
                     { numeroPedido: { contains: busca, mode: 'insensitive' } },
-                    {
-                        usuario: {
-                            nome: { contains: busca, mode: 'insensitive' }
-                        }
-                    },
-                    {
-                        usuario: {
-                            email: { contains: busca, mode: 'insensitive' }
-                        }
-                    }
+                    { usuario: { nome: { contains: busca, mode: 'insensitive' } } },
+                    { usuario: { email: { contains: busca, mode: 'insensitive' } } }
                 ];
             }
+
             const [pedidos, total] = await Promise.all([
                 prisma.pedido.findMany({
-                    where: where,
+                    where,
                     select: {
                         id: true,
                         numeroPedido: true,
@@ -556,7 +492,6 @@ export class PedidosController {
                 }),
                 prisma.pedido.count({ where })
             ]);
-
 
             reply.send({
                 success: true,
@@ -607,11 +542,23 @@ export class PedidosController {
     ) {
         try {
             const { id } = request.params;
-            const { status, motivoCancelamento } = request.body;
+            const { status, motivoCancelamento } = request.body as any;
+
+            console.log("📝 Atualizando status:", { id, status, motivoCancelamento });
 
             // Verificar se pedido existe
             const pedido = await prisma.pedido.findUnique({
-                where: { id }
+                where: { id },
+                include: {
+                    usuario: {
+                        select: {
+                            id: true,
+                            nome: true,
+                            email: true,
+                            telefone: true
+                        }
+                    }
+                }
             });
 
             if (!pedido) {
@@ -621,46 +568,111 @@ export class PedidosController {
                 });
             }
 
+            console.log("✅ Pedido encontrado:", pedido.id, "Status atual:", pedido.status);
+
             // Validar transição de status
             const statusValidos = [
-                'PAGAMENTO_PENDENTE', 'AGUARDANDO_PAGAMENTO', 'PROCESSANDO',
-                'ENVIADO', 'ENTREGUE', 'CANCELADO'
+                'PAGAMENTO_PENDENTE',
+                'AGUARDANDO_CONFIRMACAO',
+                'AGUARDANDO_PAGAMENTO',
+                'PROCESSANDO',
+                'ENVIADO',
+                'ENTREGUE',
+                'CANCELADO',
+                'APROVADO'
             ];
 
             if (!statusValidos.includes(status)) {
                 return reply.status(400).send({
                     success: false,
-                    message: 'Status inválido'
+                    message: `Status inválido: ${status}`
                 });
             }
 
             // Atualizar pedido
-            const dadosAtualizacao: any = { status };
-
             const pedidoAtualizado = await prisma.pedido.update({
                 where: { id },
-                data: dadosAtualizacao
-            });
-
-            // Registrar histórico
-            await prisma.historicoPedido.create({
                 data: {
-                    id: randomUUID(),
-                    pedidoId: id,
-                    status: "PROCESSANDO",
+                    status,
+                    ...(status === 'CANCELADO' && motivoCancelamento && { observacoes: motivoCancelamento })
                 }
             });
 
-            reply.send({
+            let smsEnviado = false;
+
+            // ENVIAR SMS QUANDO APROVAR
+            if (status === "APROVADO" && pedido.usuario?.telefone) {
+                console.log(`📱 Enviando SMS para ${pedido.usuario.telefone}...`);
+
+                const mensagem = gerarMensagemAprovacao(pedido);
+
+                console.log(`Mensagem a enviar: ${mensagem}`);
+
+                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
+
+                if (resultadoSMS.success) {
+                    console.log("✅ SMS de aprovação enviado com sucesso!");
+                    smsEnviado = true;
+                } else {
+                    console.error("❌ Erro ao enviar SMS:", resultadoSMS.error);
+                    smsEnviado = false;
+                }
+            }
+
+            // ENVIAR SMS QUANDO CANCELAR
+            if (status === 'CANCELADO' && pedido.usuario?.telefone && motivoCancelamento) {
+                console.log(`📱 Enviando SMS de cancelamento para ${pedido.usuario.telefone}...`);
+
+                const mensagem = gerarMensagemCancelamento({
+                    ...pedido,
+                    usuario: pedido.usuario
+                }, motivoCancelamento);
+
+                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
+
+                if (resultadoSMS.success) {
+                    console.log("✅ SMS de cancelamento enviado com sucesso!");
+                    smsEnviado = true;
+                } else {
+                    console.error("❌ Erro ao enviar SMS de cancelamento:", resultadoSMS.error);
+                }
+            }
+
+            // Registrar histórico
+            try {
+                const historico = await prisma.historicoPedido.create({
+                    data: {
+                        id: randomUUID(),
+                        pedidoId: id,
+                        status: status,
+                    }
+                });
+                console.log("✅ Histórico registrado:", historico.id);
+            } catch (historyError: any) {
+                console.error("❌ Erro ao criar histórico:", {
+                    message: historyError.message,
+                    code: historyError.code,
+                    meta: historyError.meta
+                });
+                // Não falha a operação principal
+            }
+
+            console.log("✅ Status atualizado com sucesso:", pedidoAtualizado.status);
+
+            // ÚNICO reply.send
+            return reply.send({
                 success: true,
-                message: 'Status do pedido atualizado',
-                data: pedidoAtualizado
+                message: 'Status do pedido atualizado com sucesso',
+                data: pedidoAtualizado,
+                smsEnviado
             });
+
         } catch (error) {
-            console.error('Erro ao atualizar status do pedido:', error);
-            reply.status(500).send({
+            console.error('❌ Erro ao atualizar status:', error);
+            return reply.status(500).send({
                 success: false,
-                message: 'Erro ao atualizar status do pedido'
+                message: 'Erro ao atualizar status do pedido',
+                error: error instanceof Error ? error.message : String(error)
             });
         }
     }
@@ -684,10 +696,8 @@ export class PedidosController {
                 if (dataFim) where.criadoEm.lte = new Date(dataFim);
             }
 
-            // Total de pedidos
             const totalPedidos = await prisma.pedido.count({ where });
 
-            // Total de vendas (excluindo cancelados)
             const totalVendasResult = await prisma.pedido.aggregate({
                 where: {
                     ...where,
@@ -696,14 +706,12 @@ export class PedidosController {
                 _sum: { total: true }
             });
 
-            // Pedidos por status
             const pedidosPorStatus = await prisma.pedido.groupBy({
                 by: ['status'],
                 where,
                 _count: true
             });
 
-            // Vendas por período (últimos 30 dias)
             const trintaDiasAtras = new Date();
             trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
 
