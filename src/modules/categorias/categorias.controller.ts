@@ -14,7 +14,7 @@ export class CategoriasController {
             select: {
               id: true,
               nome: true,
-              foto:true,
+              foto: true,
               // ativo: true // Comente se não existir
             }
           }
@@ -82,7 +82,7 @@ export class CategoriasController {
       // Se slug não for um campo no seu schema, remova esta função
       // ou substitua por busca por outro campo (nome, por exemplo)
       const categoria = await prisma.categoria.findFirst({
-        where: { 
+        where: {
           // slug: slug // Substitua por campo correto
           nome: slug // Exemplo alternativo
         },
@@ -166,16 +166,13 @@ export class CategoriasController {
       Body: {
         nome?: string;
         descricao?: string;
-        slug?: string;
-        paiId?: string;
       }
     }>,
     reply: FastifyReply
   ) {
     try {
       const { id } = request.params;
-      const dados = request.body;
-
+      const { dados } = request.body as any;
       // Verificar se categoria existe
       const categoriaExistente = await prisma.categoria.findUnique({
         where: { id }
@@ -188,59 +185,23 @@ export class CategoriasController {
         });
       }
 
-      // Verificar se novo slug já existe (se for alterado e o campo existir)
-      if (dados.slug && dados.slug !== (categoriaExistente as any).slug) {
-        const slugExistente = await prisma.categoria.findFirst({
-          where: { /* slug: dados.slug */ } // Ajuste conforme campo real
+
+      // Verificar loop hierárquico (se paiId existir)
+      const verificarLoop = async (categoriaId: string): Promise<boolean> => {
+        const pai = await prisma.categoria.findUnique({
+          where: { id },
         });
 
-        if (slugExistente) {
-          return reply.status(400).send({
-            success: false,
-            message: 'Slug já está em uso'
-          });
-        }
-      }
+        if (!pai || !(pai as any).paiId) return false;
+        if ((pai as any).paiId === categoriaId) return true;
+        return verificarLoop(categoriaId);
+      };
 
-      // Verificar se não está tentando ser pai de si mesmo (se paiId existir)
-      if (dados.paiId === id) {
+      if (await verificarLoop(id)) {
         return reply.status(400).send({
           success: false,
-          message: 'Uma categoria não pode ser pai de si mesma'
+          message: 'Criação de loop hierárquico não permitida'
         });
-      }
-
-      // Verificar se categoria pai existe (se paiId existir)
-      if (dados.paiId) {
-        const categoriaPai = await prisma.categoria.findUnique({
-          where: { id: dados.paiId }
-        });
-
-        if (!categoriaPai) {
-          return reply.status(400).send({
-            success: false,
-            message: 'Categoria pai não encontrada'
-          });
-        }
-
-        // Verificar loop hierárquico (se paiId existir)
-        const verificarLoop = async (categoriaId: string, paiId: string): Promise<boolean> => {
-          const pai = await prisma.categoria.findUnique({
-            where: { id: paiId },
-            select: { /* paiId: true */ } // Ajuste conforme campo real
-          });
-          
-          if (!pai || !(pai as any).paiId) return false;
-          if ((pai as any).paiId === categoriaId) return true;
-          return verificarLoop(categoriaId, (pai as any).paiId);
-        };
-
-        if (await verificarLoop(id, dados.paiId)) {
-          return reply.status(400).send({
-            success: false,
-            message: 'Criação de loop hierárquico não permitida'
-          });
-        }
       }
 
       const categoria = await prisma.categoria.update({
