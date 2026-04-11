@@ -2,65 +2,54 @@
 import axios from 'axios';
 
 export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ success: boolean; error?: string }> => {
-  // Limpar número
+  // Limpar número (apenas dígitos)
   let numeroLimpo = telefone.replace(/\D/g, '');
   
-  // Diferentes formatos para testar
-  const formatos = [
-    numeroLimpo,                          // 924695279
-    '0' + numeroLimpo,                    // 0924695279
-    '244' + numeroLimpo,                  // 244924695279
-    '+244' + numeroLimpo                  // +244924695279
-  ];
-
-  console.log(`📱 Tentando enviar SMS para: ${telefone}`);
-  console.log(`📝 Mensagem: ${mensagem.substring(0, 100)}...`);
-
-  for (const numero of formatos) {
-    console.log(`🔄 Tentando formato: ${numero}`);
-    
-    try {
-      const response = await axios({
-        method: 'POST',
-        url: 'https://www.telcosms.co.ao/api/v2/send_message',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'User-Agent': 'Sufficius-Ecommerce/1.0'
-        },
-        data: {
-          api_key_app: process.env.SMS_API_KEY,
-          phone_number: numero,
-          message_body: mensagem,
-          sender: 'SUFFICIUS',  // Adicionar sender name
-          type: 'text'          // Adicionar tipo
-        },
-        timeout: 30000
-      });
-
-      console.log('📦 Resposta:', response.data);
-      
-      if (response.data && response.data.status === 200) {
-        console.log(`✅ SMS enviado com sucesso usando formato: ${numero}`);
-        return { success: true };
-      }
-      
-    } catch (error: any) {
-      console.log(`❌ Formato ${numero} falhou:`, error.response?.data || error.message);
-    }
+  // Remover código do país se tiver
+  if (numeroLimpo.startsWith('244')) {
+    numeroLimpo = numeroLimpo.substring(3);
   }
 
-  // Se todos os formatos falharem, logar a mensagem mas retornar sucesso (para não bloquear)
-  console.log('========================================');
-  console.log('⚠️ SMS NÃO ENVIADO - API com problemas');
-  console.log('========================================');
-  console.log(`📲 Para: ${telefone}`);
-  console.log(`📝 Mensagem seria:\n${mensagem}`);
-  console.log('========================================');
-  
-  // Retorna sucesso para não travar o fluxo do pedido
-  return { success: true };
+  console.log(`📱 Enviando SMS para: ${numeroLimpo}`);
+  console.log(`📝 Mensagem: ${mensagem.substring(0, 100)}...`);
+
+  try {
+    const url = `https://www.telcosms.co.ao/api/v2/send_message`;
+    const params = new URLSearchParams();
+    params.append('api_key_app', process.env.SMS_API_KEY || '');
+    params.append('phone_number', numeroLimpo);
+    params.append('message_body', mensagem);
+
+    const response = await axios.get(url, { 
+      params,
+      headers: {
+        'Accept': 'application/json'
+      },
+      timeout: 30000
+    });
+
+    console.log('📦 Resposta TelcoSMS:', response.data);
+    
+    if (response.data && response.data.status === 200) {
+      console.log('✅ SMS enviado com sucesso!');
+      return { success: true };
+    } else {
+      console.log('❌ Falha no envio:', response.data);
+      return { success: false, error: response.data?.message || 'Erro desconhecido' };
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Erro ao enviar SMS:', error.response?.data || error.message);
+    return { 
+      success: false, 
+      error: error.response?.data?.message || error.message 
+    };
+  }
 };
+
+// ============================================
+// MENSAGENS PARA CADA STATUS
+// ============================================
 
 export const gerarMensagemAprovacao = (pedido: any): string => {
   const totalFormatado = new Intl.NumberFormat('pt-AO', {
@@ -68,8 +57,41 @@ export const gerarMensagemAprovacao = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  // Mensagem mais curta e sem caracteres especiais problemáticos
-  return `Pedido #${pedido.numeroPedido} APROVADO! Valor: ${totalFormatado}. Obrigado!`;
+  return `✅ PEDIDO APROVADO! ✅
+
+Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi APROVADO no valor de ${totalFormatado}.
+
+Seu pedido será processado em breve. Obrigado pela preferência!`;
+};
+
+export const gerarMensagemEnviado = (pedido: any): string => {
+  const totalFormatado = new Intl.NumberFormat('pt-AO', {
+    style: 'currency',
+    currency: 'AOA'
+  }).format(pedido.total);
+
+  return `📦 PEDIDO ENVIADO! 📦
+
+Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi ENVIADO.
+
+Valor: ${totalFormatado}
+Acompanhe o código de rastreio em breve.
+
+Obrigado pela preferência!`;
+};
+
+export const gerarMensagemEntregue = (pedido: any): string => {
+  const totalFormatado = new Intl.NumberFormat('pt-AO', {
+    style: 'currency',
+    currency: 'AOA'
+  }).format(pedido.total);
+
+  return `✅ PEDIDO ENTREGUE! ✅
+
+Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi ENTREGUE com sucesso.
+
+Valor: ${totalFormatado}
+Agradecemos pela sua compra! Volte sempre.`;
 };
 
 export const gerarMensagemCancelamento = (pedido: any, motivo: string): string => {
@@ -78,5 +100,26 @@ export const gerarMensagemCancelamento = (pedido: any, motivo: string): string =
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `Pedido #${pedido.numeroPedido} CANCELADO. Motivo: ${motivo}. Valor: ${totalFormatado}.`;
+  return `❌ PEDIDO CANCELADO ❌
+
+Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi CANCELADO.
+
+Motivo: ${motivo}
+Valor: ${totalFormatado}
+
+Em caso de dúvidas, entre em contato conosco.`;
+};
+
+export const gerarMensagemProcessando = (pedido: any): string => {
+  const totalFormatado = new Intl.NumberFormat('pt-AO', {
+    style: 'currency',
+    currency: 'AOA'
+  }).format(pedido.total);
+
+  return `🔄 PEDIDO EM PROCESSAMENTO 🔄
+
+Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} está sendo PROCESSADO.
+
+Valor: ${totalFormatado}
+Em breve seu pedido será enviado. Obrigado!`;
 };

@@ -2,7 +2,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { randomUUID } from 'crypto';
-import { enviarSMS, gerarMensagemAprovacao, gerarMensagemCancelamento } from '../../services/sms.service';
+import { enviarSMS, gerarMensagemAprovacao, gerarMensagemCancelamento, gerarMensagemEntregue, gerarMensagemEnviado, gerarMensagemProcessando } from '../../services/sms.service';
 
 export class PedidosController {
     async meusPedidos(
@@ -619,14 +619,53 @@ export class PedidosController {
                 }
             }
 
+
+            if (status === "ENTREGUE" && pedido.usuario?.telefone) {
+                console.log(`📱 Enviando SMS de entrega para ${pedido.usuario.telefone}...`);
+
+                const mensagem = gerarMensagemEntregue(pedido);
+
+                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
+
+                if (resultadoSMS.success) {
+                    console.log("✅ SMS de entrega enviado com sucesso!");
+                    smsEnviado = true;
+                } else {
+                    console.error("❌ Erro ao enviar SMS de entrega:", resultadoSMS.error);
+                }
+            }
+
+            // ENVIAR SMS QUANDO MUDAR PARA ENVIADO
+            if (status === "ENVIADO" && pedido.usuario?.telefone) {
+                console.log(`📱 Enviando SMS de envio para ${pedido.usuario.telefone}...`);
+
+                const mensagem = gerarMensagemEnviado(pedido);
+
+                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
+
+                if (resultadoSMS.success) {
+                    console.log("✅ SMS de envio enviado com sucesso!");
+                    smsEnviado = true;
+                } else {
+                    console.error("❌ Erro ao enviar SMS de envio:", resultadoSMS.error);
+                }
+            }
+
+            if (status === "PROCESSANDO" && pedido.usuario?.telefone) {
+                const mensagem = gerarMensagemProcessando(pedido);
+                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
+                if (resultadoSMS.success) smsEnviado = true;
+            }
+
+
+
+
+
             // ENVIAR SMS QUANDO CANCELAR
             if (status === 'CANCELADO' && pedido.usuario?.telefone && motivoCancelamento) {
                 console.log(`📱 Enviando SMS de cancelamento para ${pedido.usuario.telefone}...`);
 
-                const mensagem = gerarMensagemCancelamento({
-                    ...pedido,
-                    usuario: pedido.usuario
-                }, motivoCancelamento);
+                const mensagem = gerarMensagemCancelamento(pedido, motivoCancelamento);
 
                 const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
 

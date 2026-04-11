@@ -240,14 +240,19 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
   app.post('/checkout', async (request, reply) => {
     try {
       console.log("📦 Iniciando checkout...");
+      console.log("📋 Headers:", request.headers);
+      console.log("📋 Content-Type:", request.headers['content-type']);
 
       const user = request.user as any;
       if (!user) {
+        console.log("❌ Usuário não autenticado");
         return reply.status(401).send({
           success: false,
           message: "Usuário não autenticado"
         });
       }
+
+      console.log("✅ Usuário autenticado:", user.id);
 
       // // 2. AGORA processar o multipart
       // const contentType = request.headers['content-type'] || '';
@@ -267,20 +272,23 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       console.log('📊 Dados recebidos do formulário:', { userId, location, phone, paymentProofFilename });
 
       for await (const part of parts) {
+        console.log(`🔍 Processando part: tipo=${part.type}, fieldname=${part.fieldname}`);
+
         if (part.type === 'field') {
           if (part.fieldname === 'userId') userId = part.value as string;
           if (part.fieldname === 'location') location = part.value as string;
           if (part.fieldname === 'phone') phone = part.value as string;
-        console.log(`📝 Campo: ${part.fieldname} = ${part.value}`);
+          console.log(`📝 Campo: ${part.fieldname} = ${part.value}`);
         } else if (part.type === 'file') {
           console.log(`📎 Arquivo recebido: ${part.filename}, tipo: ${part.mimetype}`);
-            paymentProofFilename = part.filename;
-            paymentProofMimetype = part.mimetype;
-            paymentProofBuffer = await part.toBuffer();
+          paymentProofFilename = part.filename;
+          paymentProofMimetype = part.mimetype;
+          paymentProofBuffer = await part.toBuffer();
         }
       }
 
       if (!userId) {
+        console.log("❌ userId ausente");
         return reply.status(400).send({
           success: false,
           message: "ID do usuário é obrigatório"
@@ -288,6 +296,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       }
 
       if (!location) {
+        console.log("❌ location ausente");
         return reply.status(400).send({
           success: false,
           message: "Localização é obrigatória"
@@ -295,6 +304,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       }
 
       if (!phone) {
+        console.log("❌ phone ausente");
         return reply.status(400).send({
           success: false,
           message: "Telefone é obrigatório"
@@ -302,12 +312,14 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       }
 
       if (!paymentProofBuffer) {
+        console.log("❌ Comprovativo ausente");
         return reply.status(400).send({
           success: false,
           message: "Comprovativo de pagamento é obrigatório"
         });
       }
 
+       console.log(`✅ Dados validados: userId=${userId}, location=${location}, phone=${phone}`);
 
       // if (!userId || !location || !phone || !paymentProofFile) {
       //   return reply.status(400).send({
@@ -319,6 +331,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       // Validar tipo do arquivo
       const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
       if (!validTypes.includes(paymentProofMimetype)) {
+         console.log(`❌ Tipo inválido: ${paymentProofMimetype}`);
         return reply.status(400).send({
           success: false,
           message: "Tipo de arquivo não suportado. Use JPEG, PNG, WebP ou PDF"
@@ -326,15 +339,15 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       }
 
       // Validar tamanho (10MB)
-    if (paymentProofBuffer.length > 10 * 1024 * 1024) {
-      return reply.status(400).send({
-        success: false,
-        message: "Arquivo muito grande. Máximo 10MB"
-      });
-    } 
+      if (paymentProofBuffer.length > 10 * 1024 * 1024) {
+        console.log(`❌ Arquivo muito grande: ${paymentProofBuffer.length} bytes`);
+        return reply.status(400).send({
+          success: false,
+          message: "Arquivo muito grande. Máximo 10MB"
+        });
+      }
 
-      console.log(`📦 Tamanho do arquivo: ${(paymentProofBuffer.length / 1024).toFixed(2)}KB`);
-
+         console.log("📦 Verificando carrinho...");
       const cartCount = await prisma.itemCarrinho.count({
         where: {
           carrinho: {
@@ -342,8 +355,10 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
           }
         }
       });
+      console.log(`📊 Itens no carrinho: ${cartCount}`);
 
       if (cartCount === 0) {
+        console.log("❌ Carrinho vazio");
         return reply.status(400).send({
           success: false,
           message: "Carrinho vazio"
@@ -356,20 +371,23 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
           ItemCarrinho: {
             include: {
               produto: true,
-              }
             }
           }
+        }
       });
 
       if (!cart || cart.ItemCarrinho.length === 0) {
+        console.log("❌ Carrinho não encontrado ou vazio");
         return reply.status(400).send({
           success: false,
           message: "Carrinho vazio"
         });
       }
+       console.log(`✅ Carrinho encontrado com ${cart.ItemCarrinho.length} itens`);
 
       for (const item of cart.ItemCarrinho) {
         if (item.quantidade > item.produto.quantidade) {
+          console.log(`❌ Estoque insuficiente para ${item.produto.nome}`);
           return reply.status(400).send({
             success: false,
             message: `Quantidade insuficiente para o produto ${item.produto.nome}`,
@@ -383,6 +401,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       });
 
       if (!endereco) {
+         console.log("❌ Endereço não encontrado");
         return reply.status(400).send({
           success: false,
           message: "Endereço do usuário não encontrado"
@@ -394,7 +413,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       );
 
       const fileExtension = paymentProofFilename.split('.').pop();
-      const fileName = `comprovativos/${Date.now()}_${userId.substring(0,8)}.${fileExtension}`;
+      const fileName = `comprovativos/${Date.now()}_${userId.substring(0, 8)}.${fileExtension}`;
 
       console.log("📤 Fazendo upload para:", fileName);
 
@@ -410,7 +429,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
       if (uploadError) {
         console.log("❌ Erro no upload: ", uploadError);
-      return reply.status(500).send({
+        return reply.status(500).send({
           success: false,
           message: `Erro ao fazer upload do comprovativo: ${uploadError.message}`,
         });
@@ -450,7 +469,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       });
 
 
-       await prisma.pagamento.create({
+      await prisma.pagamento.create({
         data: {
           id: randomUUID(),
           usuarioId: userId,
