@@ -68,65 +68,137 @@ export class PedidosController {
         }
     }
 
-    async buscarPedidoPorId(
-        request: FastifyRequest<{ Params: { id: string } }>,
-        reply: FastifyReply
-    ) {
-        try {
-            const usuario = request.user as any;
-            const { id } = request.params;
+ async buscarPedidoPorId(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+) {
+    try {
+        const usuario = request.user as any;
+        const { id } = request.params;
+        
+        console.log("🔍 Buscando pedido - ID:", id);
+        console.log("👤 Usuário:", usuario.id, "Tipo:", usuario.tipo);
 
-            const pedido = await prisma.pedido.findUnique({
-                where: { id },
-                include: {
-                    ItemPedido: {
-                        include: {
-                            produto: {
-                                include: {
-                                    ImagemProduto: true
-                                }
-                            },
-                            pedido: true
-                        }
-                    },
-                    endereco: true,
-                    usuario: {
-                        select: {
-                            id: true,
-                            nome: true,
-                            email: true
+        const pedido = await prisma.pedido.findUnique({
+            where: { id },
+            include: {
+                ItemPedido: {
+                    include: {
+                        produto: {
+                            include: {
+                                ImagemProduto: true
+                            }
                         }
                     }
+                },
+                endereco: true,
+                usuario: {
+                    select: {
+                        id: true,
+                        nome: true,
+                        email: true
+                    }
                 }
-            });
-
-            if (!pedido) {
-                return reply.status(404).send({
-                    success: false,
-                    message: 'Pedido não encontrado'
-                });
             }
+        });
 
-            // Verificar se usuário tem permissão (é dono ou admin)
-            if (pedido.usuarioId !== usuario.id && usuario.tipo !== 'ADMIN') {
-                return reply.status(403).send({
-                    success: false,
-                    message: 'Você não tem permissão para ver este pedido'
-                });
-            }
-
-            reply.send({
-                success: true,
-                data: pedido
-            });
-        } catch (error) {
-            console.error('Erro ao buscar pedido:', error);
-            reply.status(500).send({
+        console.log("📦 Pedido encontrado?", !!pedido);
+        
+        if (!pedido) {
+            console.log("❌ Pedido não encontrado para ID:", id);
+            return reply.status(404).send({
                 success: false,
-                message: 'Erro ao buscar pedido'
+                message: 'Pedido não encontrado'
             });
         }
+
+        // Verificar permissão
+        if (pedido.usuarioId !== usuario.id && usuario.tipo !== 'ADMIN') {
+            console.log("❌ Permissão negada para usuário:", usuario.id);
+            return reply.status(403).send({
+                success: false,
+                message: 'Você não tem permissão para ver este pedido'
+            });
+        }
+
+        console.log("✅ Pedido encontrado, serializando dados...");
+
+        // Serializar manualmente para evitar problemas de referência circular
+        const pedidoSerializado = {
+            id: pedido.id,
+            numeroPedido: pedido.numeroPedido,
+            status: pedido.status,
+            total: Number(pedido.total),
+            frete: Number(pedido.frete),
+            desconto: Number(pedido.desconto),
+            observacoes: pedido.observacoes || null,
+            criadoEm: pedido.criadoEm,
+            atualizadoEm: pedido.atualizadoEm,
+            usuarioId: pedido.usuarioId,
+            enderecoId: pedido.enderecoId,
+            statusPagamento: pedido.statusPagamento,
+            metodoPagamento: pedido.metodoPagamento,
+            metodoEnvio: pedido.metodoEnvio,
+            referenciaPagamento: pedido.referenciaPagamento,
+            dataPagamento: pedido.dataPagamento,
+            codigoRastreio: pedido.codigoRastreio,
+            dataEntrega: pedido.dataEntrega,
+            entregueEm: pedido.entregueEm,
+            usuario: pedido.usuario ? {
+                id: pedido.usuario.id,
+                nome: pedido.usuario.nome,
+                email: pedido.usuario.email
+            } : null,
+            endereco: pedido.endereco ? {
+                id: pedido.endereco.id,
+                rua: pedido.endereco.rua,
+                numero: pedido.endereco.numero,
+                bairro: pedido.endereco.bairro,
+                cidade: pedido.endereco.cidade,
+                provincia: (pedido.endereco as any).provincia || '',
+                cep: (pedido.endereco as any).cep || '',
+                telefone: (pedido.endereco as any).telefone || '',
+                complemento: (pedido.endereco as any).complemento || null
+            } : null,
+            ItemPedido: pedido.ItemPedido.map(item => ({
+                id: item.id,
+                quantidade: item.quantidade,
+                precoUnitario: Number(item.precoUnitario),
+                precoTotal: Number(item.precoTotal),
+                produto: {
+                    id: item.produto.id,
+                    nome: item.produto.nome,
+                    preco: Number(item.produto.preco),
+                    foto: item.produto.foto || null,
+                    descricao: item.produto.descricao,
+                    sku: (item.produto as any).sku || null,
+                    quantidade: item.produto.quantidade,
+                    ImagemProduto: item.produto.ImagemProduto?.map(img => ({
+                        id: img.id,
+                        url: img.url,
+                        principal: img.principal,
+                        ordem: img.ordem
+                    })) || []
+                }
+            }))
+        };
+
+        console.log("✅ Dados serializados com sucesso");
+        
+        reply.send({
+            success: true,
+            data: pedidoSerializado
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar pedido:', error);
+        reply.status(500).send({
+            success: false,
+            message: 'Erro ao buscar pedido',
+            error: error instanceof Error ? error.message : String(error)
+        });
     }
+}
 
     async criarPedido(
         request: FastifyRequest<{
