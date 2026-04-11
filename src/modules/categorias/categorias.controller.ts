@@ -129,42 +129,12 @@ export class CategoriasController {
       Body: {
         nome: string;
         descricao?: string;
-        slug?: string; // Torne opcional se não existir
-        paiId?: string;
       }
     }>,
     reply: FastifyReply
   ) {
     try {
-      const { nome, descricao, slug, paiId } = request.body;
-
-      // Verificar se slug já existe (se o campo existir)
-      if (slug) {
-        const slugExistente = await prisma.categoria.findFirst({
-          where: { /* slug: slug */ } // Ajuste conforme campo real
-        });
-
-        if (slugExistente) {
-          return reply.status(400).send({
-            success: false,
-            message: 'Slug já está em uso'
-          });
-        }
-      }
-
-      // Verificar se categoria pai existe
-      if (paiId) {
-        const categoriaPai = await prisma.categoria.findUnique({
-          where: { id: paiId }
-        });
-
-        if (!categoriaPai) {
-          return reply.status(400).send({
-            success: false,
-            message: 'Categoria pai não encontrada'
-          });
-        }
-      }
+      const { nome, descricao } = request.body;
 
       const categoria = await prisma.categoria.create({
         data: {
