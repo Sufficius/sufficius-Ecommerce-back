@@ -5,16 +5,16 @@
   "main": "index.js",
   "scripts": {
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate",
+    "prisma:migrate": "prisma migrate deploy",
     "clean": "rm -rf dist node_modules/.prisma node_modules/.cache",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "npm run prisma:generate && tsc && npm run db:setup",
+    "build": "npm run prisma:generate && tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
-    "render-build": "npm ci --only=production && npm run prisma:generate && npm run prisma:migrate && npm run build",
+    "render-build": "npm ci --omit=dev && npm run prisma:generate",
     "render-start": "node dist/server.js"
-  },
+},
   "prisma": {
     "schema": "prisma/schema.prisma"
   },
