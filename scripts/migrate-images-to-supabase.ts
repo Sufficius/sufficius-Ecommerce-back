@@ -19,7 +19,6 @@ const supabase = createClient(
 );
 
 async function migrateProductImages() {
-  console.log('��� Migrando imagens de produtos...');
   
   const produtos = await prisma.produto.findMany({
     where: {
@@ -29,7 +28,6 @@ async function migrateProductImages() {
     }
   });
   
-  console.log(`��� Encontrados ${produtos.length} produtos com imagens locais`);
   
   for (const produto of produtos) {
     try {

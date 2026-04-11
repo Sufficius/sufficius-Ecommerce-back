@@ -525,7 +525,7 @@ export class CarrinhoController {
 
     const itemCount = cart.ItemCarrinho.length;
 
-    console.log("🍀🍀🍀 Total: ", itemCount);
+   
     reply.send({
       totalItens: itemCount,
     });

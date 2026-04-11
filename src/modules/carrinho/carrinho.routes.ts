@@ -240,9 +240,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
   app.post('/checkout', async (request, reply) => {
     try {
       console.log("📦 Iniciando checkout...");
-      console.log("📋 Headers:", request.headers);
-      console.log("📋 Content-Type:", request.headers['content-type']);
-
+    
       const user = request.user as any;
       if (!user) {
         console.log("❌ Usuário não autenticado");
