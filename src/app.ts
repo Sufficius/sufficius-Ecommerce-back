@@ -153,11 +153,6 @@ app.addHook('onRequest', async (request, reply) => {
       { method: 'GET', path: '/produtos/:id' },
       { method: 'GET', path: '/debug' },
       { method: 'GET', path: '/debug/auth' },
-      { method: 'GET', path: '/carrinho/count-items-on-card' },
-      { method: 'POST', path: '/carrinho/item' },
-      { method: 'GET', path: '/carrinho' },
-      { method: 'DELETE', path: '/carrinho/item' },
-      { method: 'PUT', path: '/carrinho/item' },
     ];
 
     // Verificar se a rota atual é pública
