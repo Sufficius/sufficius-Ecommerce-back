@@ -20,7 +20,6 @@ import { join } from "path";
 import uploadRoutes from "./modules/upload/upload";
 import estoqueRoutes from "./modules/estoque/estoque.routes";
 import { prisma } from "./lib/prisma";
-import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
 
 dotenv.config();
 
@@ -49,9 +48,6 @@ const app = Fastify({
   disableRequestLogging: false,
 });
 
-app.setValidatorCompiler(validatorCompiler);
-app.setSerializerCompiler(serializerCompiler);
-
 // CORS MANUAL
 const allowedOrigins = [
   'https://sufficius-ecommerce.vercel.app',
@@ -63,14 +59,14 @@ const allowedOrigins = [
 
 app.addHook('onRequest', (request, reply, done) => {
   const origin = request.headers.origin;
-  if (request.method === 'OPTION') {
+  if (request.method === 'OPTIONS') {
     if (origin && allowedOrigins.includes(origin)) {
       reply.header('Access-Control-Allow-Origin', origin);
       reply.header('Access-Control-Allow-Credentials', 'true');
     } else if (process.env.NODE_ENV === 'development') {
       reply.header('Access-Control-Allow-Origin', origin || '*');
     }
-    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTION');
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Access-Token, X-API-Key, Content-Type, Authorization');
     reply.header('Access-Control-Allow-Credentials', 'true');
     reply.header('Access-Control-Max-Age', '86400');
@@ -137,12 +133,6 @@ declare module 'fastify' {
 // Hook de autenticação CORRIGIDO
 app.addHook('onRequest', async (request, reply) => {
   try {
-
-    if (request.url === '/carrinho/count-items-on-card' && request.method === 'GET') {
-    console.log('📊 Rota pública especial: count-items-on-card');
-    return; // Sai do hook sem fazer nada
-  }
-
     if (request.method === 'HEAD' || request.url === '/' || request.url === '/health') {
       return;
     }
@@ -163,12 +153,26 @@ app.addHook('onRequest', async (request, reply) => {
       { method: 'GET', path: '/produtos/:id' },
       { method: 'GET', path: '/debug' },
       { method: 'GET', path: '/debug/auth' },
+      { method: 'GET', path: '/carrinho/count-items-on-card' },
+      { method: 'POST', path: '/carrinho/item' },
+      { method: 'GET', path: '/carrinho' },
+      { method: 'DELETE', path: '/carrinho/item' },
+      { method: 'PUT', path: '/carrinho/item' },
     ];
 
     // Verificar se a rota atual é pública
     const isPublicRoute = publicRoutes.some(route =>
       request.method === route.method && request.url.startsWith(route.path.replace(':id', ''))
     );
+
+    // 🔍 LOG DE DEBUG
+    console.log('🔍 [AUTH HOOK]', {
+      method: request.method,
+      url: request.url,
+      isPublic: isPublicRoute,
+      hasAuthHeader: !!request.headers.authorization,
+      origin: request.headers.origin
+    });
 
     if (isPublicRoute) {
       console.log('✅ Rota pública, ignorando autenticação:', request.url);
