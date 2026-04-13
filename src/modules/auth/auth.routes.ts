@@ -1296,7 +1296,7 @@ export default async function authRoutes(app: FastifyInstance) {
         console.log("⚠️  Usuário não tem senha cadastrada");
         return reply.status(401).send({
           success: false,
-          message: "Conta não possui senha cadastrada",
+          message: "Use Google Login ou recupere senha",
           suggestion: "Use Google Login ou recupere senha"
         });
       }
