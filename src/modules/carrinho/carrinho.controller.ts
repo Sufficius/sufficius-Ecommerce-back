@@ -151,7 +151,6 @@ export class CarrinhoController {
   async adicionarItem(
     request: FastifyRequest<{
       Body: {
-        userId: string;
         produtoId: string;
         quantidade: number;
       }
@@ -160,15 +159,9 @@ export class CarrinhoController {
   ) {
     try {
       const usuario = request.user as any;
-      const { userId, produtoId, quantidade } = request.body;
+      const { produtoId, quantidade } = request.body;
 
 
-      if (!userId) {
-        return reply.status(400).send({
-          success: false,
-          message: 'ID do usuário é obrigatório'
-        })
-      }
       // Validações
       if (!produtoId) {
         return reply.status(400).send({

@@ -31,7 +31,7 @@ export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ s
     console.log('📦 Resposta TelcoSMS:', response.data);
     
     if (response.data && response.data.status === 200) {
-      console.log('✅ SMS enviado com sucesso!');
+      console.log(' SMS enviado com sucesso!');
       return { success: true };
     } else {
       console.log('❌ Falha no envio:', response.data);
@@ -57,7 +57,7 @@ export const gerarMensagemAprovacao = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `✅ PEDIDO APROVADO! ✅
+  return `PEDIDO APROVADO!
 
 Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi APROVADO no valor de ${totalFormatado}.
 
@@ -70,7 +70,7 @@ export const gerarMensagemEnviado = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `📦 PEDIDO ENVIADO! 📦
+  return `PEDIDO ENVIADO!
 
 Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi ENVIADO.
 
@@ -86,7 +86,7 @@ export const gerarMensagemEntregue = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `✅ PEDIDO ENTREGUE! ✅
+  return `PEDIDO ENTREGUE!
 
 Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi ENTREGUE com sucesso.
 
@@ -100,7 +100,7 @@ export const gerarMensagemCancelamento = (pedido: any, motivo: string): string =
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `❌ PEDIDO CANCELADO ❌
+  return `PEDIDO CANCELADO
 
 Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi CANCELADO.
 
@@ -116,7 +116,7 @@ export const gerarMensagemProcessando = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `🔄 PEDIDO EM PROCESSAMENTO 🔄
+  return `PEDIDO EM PROCESSAMENTO
 
 Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} está sendo PROCESSADO.
 
