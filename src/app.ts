@@ -130,7 +130,7 @@ declare module 'fastify' {
   }
 }
 
-// Hook de autenticação
+// Hook de autenticação CORRIGIDO
 app.addHook('onRequest', async (request, reply) => {
   try {
     // Rotas públicas que não precisam de autenticação
@@ -147,12 +147,7 @@ app.addHook('onRequest', async (request, reply) => {
       { method: 'GET', path: '/pedidos' },
       { method: 'GET', path: '/produtos/:id' },
       { method: 'GET', path: '/debug' },
-      // ✅ Adicionar rotas do carrinho (se não precisarem de auth)
-      { method: 'GET', path: '/carrinho/count-items-on-card' },
-      { method: 'POST', path: '/carrinho/item' },
-      { method: 'GET', path: '/carrinho' },
-      { method: 'DELETE', path: '/carrinho/item' },
-      { method: 'PUT', path: '/carrinho/item' },
+      { method: 'GET', path: '/debug/auth' },
     ];
 
     // Verificar se a rota atual é pública
@@ -160,25 +155,51 @@ app.addHook('onRequest', async (request, reply) => {
       request.method === route.method && request.url.startsWith(route.path.replace(':id', ''))
     );
 
+    // 🔍 LOG DE DEBUG
+    console.log('🔍 [AUTH HOOK]', {
+      method: request.method,
+      url: request.url,
+      isPublic: isPublicRoute,
+      hasAuthHeader: !!request.headers.authorization,
+      origin: request.headers.origin
+    });
+
     if (isPublicRoute) {
+      console.log('✅ Rota pública, ignorando autenticação:', request.url);
       return;
     }
 
+    // Para rotas do carrinho, permitir mesmo sem token? (retorna 0 itens)
+    if (request.url.startsWith('/carrinho/')) {
+      // Se for GET count-items-on-card e não tem token, retorna 0
+      if (request.url === '/carrinho/count-items-on-card' && request.method === 'GET') {
+        const authHeader = request.headers.authorization;
+        
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+          console.log('⚠️ Sem token para count-items-on-card, retornando 0');
+          // Em vez de retornar 401, retorna 0 itens
+          reply.status(200).send({ totalItens: 0 });
+          return; // Importante: para a execução
+        }
+      }
+    }
 
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {
+      console.log('❌ Token não fornecido para:', request.method, request.url);
       reply.status(401).send({
         success: false,
-        error: 'Token não fornecido'
+        message: 'Token não fornecido'
       });
       return;
     }
 
     if (!authHeader.startsWith('Bearer ')) {
+      console.log('❌ Formato token inválido:', request.method, request.url);
       reply.status(401).send({
         success: false,
-        error: 'Formato do token inválido. Use "Bearer <token>"'
+        message: 'Formato do token inválido. Use "Bearer <token>"'
       });
       return;
     }
@@ -186,6 +207,7 @@ app.addHook('onRequest', async (request, reply) => {
     const token = authHeader.replace('Bearer ', '');
 
     if (!token) {
+      console.log('❌ Token vazio');
       reply.code(401).send({
         success: false,
         message: 'Token inválido'
@@ -194,7 +216,7 @@ app.addHook('onRequest', async (request, reply) => {
     }
 
     try {
-      // Verificar token JWT (jwtVerify lê o header Authorization automaticamente)
+      // Verificar token JWT
       const decoded = await request.jwtVerify<{ id: string; email: string; tipo: string, fotoUrl?: string }>();
 
       // Adicionar informações do usuário ao request
@@ -208,21 +230,23 @@ app.addHook('onRequest', async (request, reply) => {
       console.log('✅ Usuário autenticado:', {
         id: decoded.id,
         email: decoded.email,
-        fotoUrl: decoded.fotoUrl
-        // tipo: decoded.tipo
+        url: request.url
       });
 
     } catch (jwtError: any) {
+      console.log('❌ Token inválido/expirado:', jwtError.message);
       reply.status(401).send({
         success: false,
-        error: 'Token inválido ou expirado'
+        message: 'Token inválido ou expirado'
       });
+      return;
     }
 
   } catch (error: any) {
+    console.error('❌ Erro na autenticação:', error);
     reply.status(500).send({
       success: false,
-      error: 'Erro interno na autenticação'
+      message: 'Erro interno na autenticação'
     });
   }
 });
