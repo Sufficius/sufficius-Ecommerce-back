@@ -2,6 +2,7 @@
 import { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { randomUUID } from 'crypto';
+import { totalmem } from 'os';
 
 export class CarrinhoController {
   async obterCarrinho(request: FastifyRequest, reply: FastifyReply) {
@@ -162,6 +163,13 @@ export class CarrinhoController {
       const { produtoId, quantidade } = request.body;
 
 
+        if (!usuario || !usuario.id) {
+      return reply.status(401).send({
+        success: false,
+        message: 'Usuário não autenticado'
+      });
+    }
+    
       // Validações
       if (!produtoId) {
         return reply.status(400).send({
@@ -506,6 +514,13 @@ export class CarrinhoController {
     try {
 
       const usuario = request.user as any;
+
+      if(!usuario || !usuario.id) {
+        console.log('⚠️  Usuário autenticado, retornando 0 itens');
+        return reply.code(200).send({
+          totalItens: 0,
+        });
+      }
 
       const cart = await prisma.carrinho.findFirst({
         where: { usuarioId: usuario.id },
