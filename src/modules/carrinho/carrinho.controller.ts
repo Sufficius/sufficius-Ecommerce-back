@@ -503,25 +503,34 @@ export class CarrinhoController {
   }
 
   async countItemsOnCart(request: FastifyRequest, reply: FastifyReply) {
-    const { userId } = request.params as any;
+    try {
 
-    const cart = await prisma.carrinho.findFirst({
-      where: { usuarioId: userId },
-      include: { ItemCarrinho: true }
-    });
+      const usuario = request.user as any;
 
-    if (!cart) {
-      return reply.code(200).send({
-        totalItens: 0,
+      const cart = await prisma.carrinho.findFirst({
+        where: { usuarioId: usuario.id },
+        include: { ItemCarrinho: true }
+      });
+
+      if (!cart) {
+        return reply.code(200).send({
+          totalItens: 0,
+        });
+      }
+
+      const itemCount = cart.ItemCarrinho.reduce((sum, item) => sum + item.quantidade, 0);
+
+      reply.send({
+        totalItens: itemCount,
       });
     }
-
-    const itemCount = cart.ItemCarrinho.length;
-
-   
-    reply.send({
-      totalItens: itemCount,
-    });
+    catch (error) {
+      console.error('❌ Erro ao contar itens no carrinho:', error);
+      reply.status(500).send({
+        success: false,
+        message: 'Erro ao contar itens no carrinho'
+      });
+    }
   }
 
   async removerItem(
