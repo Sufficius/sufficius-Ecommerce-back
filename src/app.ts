@@ -147,11 +147,17 @@ app.addHook('onRequest', async (request, reply) => {
       { method: 'GET', path: '/pedidos' },
       { method: 'GET', path: '/produtos/:id' },
       { method: 'GET', path: '/debug' },
+      // ✅ Adicionar rotas do carrinho (se não precisarem de auth)
+      { method: 'GET', path: '/carrinho/count-items-on-card' },
+      { method: 'POST', path: '/carrinho/item' },
+      { method: 'GET', path: '/carrinho' },
+      { method: 'DELETE', path: '/carrinho/item' },
+      { method: 'PUT', path: '/carrinho/item' },
     ];
 
     // Verificar se a rota atual é pública
     const isPublicRoute = publicRoutes.some(route =>
-      request.method === route.method && request.url.startsWith(route.path.replace(':id',''))
+      request.method === route.method && request.url.startsWith(route.path.replace(':id', ''))
     );
 
     if (isPublicRoute) {
