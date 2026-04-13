@@ -468,7 +468,7 @@ export class EstoqueController {
   async criarEstoque(request: FastifyRequest, reply: FastifyReply) {
     try {
       console.log('📦 Criando novo item de estoque...');
-      
+
       // Verificar autenticação
       try {
         await request.jwtVerify();
@@ -490,10 +490,10 @@ export class EstoqueController {
       const dados = request.body as any;
 
       console.log('🔄 Processando dados...');
-      console.log('📊 Dados recebidos:', { 
-        nome: dados.nome, 
-        preco: dados.preco, 
-        quantidade: dados.quantidade 
+      console.log('📊 Dados recebidos:', {
+        nome: dados.nome,
+        preco: dados.preco,
+        quantidade: dados.quantidade
       });
 
       // Validar dados
@@ -770,82 +770,56 @@ export class EstoqueController {
   async getEstatisticasEstoque(request: FastifyRequest, reply: FastifyReply) {
     try {
       // Buscar todas as estatísticas em paralelo
-      const [
+      const itens = await prisma.estoque.findMany({
+        include: {
+          Categoria: true,
+        }
+      });
+
+      const totalItens = itens.length;
+      const totalAtivos = itens.filter(item => item.status === 'ATIVO').length;
+      const totalInativos = itens.filter(item => item.status === 'INATIVO').length;
+
+      const baixoEstoque = itens.filter(item => item.quantidade > 0 && item.quantidade <= 10).length;
+      const semEstoque = itens.filter(item => item.quantidade === 0).length;
+      const valorTotalEstoque = itens.reduce((total, item) => {
+        return total + (item.preco * item.quantidade);
+      }, 0);
+
+      // Buscar itens com baixo estoque
+      const itensBaixoEstoque = itens.filter(item => item.quantidade > 0 && item.quantidade <= 10).map(item => ({
+        id: item.id,
+        nome: item.nome,
+        quantidade: item.quantidade,
+        preco: item.preco
+      }));
+
+      const valorMedioPorItem = totalAtivos > 0 ? valorTotalEstoque / totalAtivos : 0;
+      const porcentagemAtivos = totalItens > 0 ? Math.round((totalAtivos / totalItens) * 100) : 0;
+      const estatisticas = {
         totalItens,
         totalAtivos,
         totalInativos,
         baixoEstoque,
         semEstoque,
-        valorTotalEstoque
-      ] = await Promise.all([
-        prisma.estoque.count(),
-        prisma.estoque.count({ where: { status: 'ATIVO' } }),
-        prisma.estoque.count({ where: { status: 'INATIVO' } }),
-        prisma.estoque.count({ where: { quantidade: { lte: 10, gt: 0 } } }),
-        prisma.estoque.count({ where: { quantidade: 0 } }),
-        prisma.estoque.aggregate({
-          where: { status: 'ATIVO' },
-          _sum: {
-            preco: true,
-            quantidade: true
-          }
-        })
-      ]);
-
-      // Calcular valor total em estoque (preço * quantidade)
-      const itensComValor = await prisma.estoque.findMany({
-        where: { status: 'ATIVO' },
-        select: {
-          preco: true,
-          quantidade: true
+        valorTotalEstoque,
+        itensBaixoEstoque,
+        resumo: {
+          itensPorStatus: {
+            ativos: totalAtivos,
+            inativos: totalInativos,
+            baixoEstoque,
+            semEstoque
+          },
+          porcentagemAtivos,
+          valorMedioPorItem
         }
-      });
+      };
 
-      const valorTotal = itensComValor.reduce((total, item) => {
-        return total + (item.preco * item.quantidade);
-      }, 0);
-
-      // Buscar itens com baixo estoque
-      const itensBaixoEstoque = await prisma.estoque.findMany({
-        where: { 
-          quantidade: { lte: 10, gt: 0 },
-          status: 'ATIVO'
-        },
-        select: {
-          id: true,
-          nome: true,
-          quantidade: true,
-          preco: true,
-          foto: true
-        },
-        orderBy: { quantidade: 'asc' },
-        take: 10
-      });
 
       reply.send({
         success: true,
-        data: {
-          totalItens,
-          totalAtivos,
-          totalInativos,
-          baixoEstoque,
-          semEstoque,
-          valorTotalEstoque: valorTotal,
-          itensBaixoEstoque: itensBaixoEstoque.map(item => ({
-            ...item,
-            imagemUrl: buildImageUrlFromFoto(item.foto)
-          })),
-          resumo: {
-            itensPorStatus: {
-              ativos: totalAtivos,
-              inativos: totalInativos,
-              baixoEstoque,
-              semEstoque
-            },
-            porcentagemAtivos: totalItens > 0 ? Math.round((totalAtivos / totalItens) * 100) : 0,
-            valorMedioPorItem: totalAtivos > 0 ? valorTotal / totalAtivos : 0
-          }
-        }
+        data: estatisticas,
       });
     } catch (error) {
       console.error('Erro ao buscar estatísticas do estoque:', error);
@@ -887,7 +861,7 @@ export class EstoqueController {
           await deleteFromCloudinary(item.foto);
           totalCloudinaryDeletadas++;
         }
-        
+
         for (const imagem of item.ImagemProduto) {
           if (imagem.id) {
             await deleteFromCloudinary(imagem.id);
