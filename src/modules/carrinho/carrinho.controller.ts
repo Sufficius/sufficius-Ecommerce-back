@@ -169,7 +169,7 @@ export class CarrinhoController {
         message: 'Usuário não autenticado'
       });
     }
-    
+
       // Validações
       if (!produtoId) {
         return reply.status(400).send({
@@ -511,6 +511,9 @@ export class CarrinhoController {
   }
 
   async countItemsOnCart(request: FastifyRequest, reply: FastifyReply) {
+    console.log('🔍 [countItemsOnCart] Iniciando...');
+  console.log('   Usuário no request:', request.user ? 'EXISTE' : 'NÃO EXISTE');
+  console.log('   Headers:', request.headers.authorization ? 'Com token' : 'Sem token');
     try {
 
       const usuario = request.user as any;
