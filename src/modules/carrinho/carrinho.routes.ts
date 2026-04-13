@@ -520,7 +520,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       schema: {
         body: {
           type: 'object',
-          required: ['userId', 'produtoId', 'quantidade'],
+          required: ['produtoId', 'quantidade'],
           properties: {
             userId: { type: 'string' },
             produtoId: { type: 'string' },
