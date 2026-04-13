@@ -144,7 +144,7 @@ interface QuantidadeRoute {
 export default async function carrinhoRoutes(app: FastifyInstance) {
   // Obter carrinho do usuário
 
-  app.get('/count-items-on-card/:userId',
+  app.get('/count-items-on-card/',
     {
       preHandler: [authenticate],
       schema: {
