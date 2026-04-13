@@ -133,6 +133,10 @@ declare module 'fastify' {
 // Hook de autenticação CORRIGIDO
 app.addHook('onRequest', async (request, reply) => {
   try {
+    if (request.method === 'HEAD' || request.url === '/' || request.url === '/health') {
+      return;
+    }
+
     // Rotas públicas que não precisam de autenticação
     const publicRoutes = [
       { method: 'POST', path: '/usuarios/login' },
@@ -141,6 +145,7 @@ app.addHook('onRequest', async (request, reply) => {
       { method: 'POST', path: '/auth/google' },
       { method: 'GET', path: '/health' },
       { method: 'GET', path: '/' },
+      { method: 'HEAD', path: '/' },
       { method: 'GET', path: '/produtos' },
       { method: 'GET', path: '/categorias' },
       { method: 'GET', path: '/produtos/get' },
@@ -148,6 +153,11 @@ app.addHook('onRequest', async (request, reply) => {
       { method: 'GET', path: '/produtos/:id' },
       { method: 'GET', path: '/debug' },
       { method: 'GET', path: '/debug/auth' },
+      { method: 'GET', path: '/carrinho/count-items-on-card' },
+      { method: 'POST', path: '/carrinho/item' },
+      { method: 'GET', path: '/carrinho' },
+      { method: 'DELETE', path: '/carrinho/item' },
+      { method: 'PUT', path: '/carrinho/item' },
     ];
 
     // Verificar se a rota atual é pública
@@ -174,7 +184,7 @@ app.addHook('onRequest', async (request, reply) => {
       // Se for GET count-items-on-card e não tem token, retorna 0
       if (request.url === '/carrinho/count-items-on-card' && request.method === 'GET') {
         const authHeader = request.headers.authorization;
-        
+
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
           console.log('⚠️ Sem token para count-items-on-card, retornando 0');
           // Em vez de retornar 401, retorna 0 itens
