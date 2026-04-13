@@ -137,6 +137,12 @@ declare module 'fastify' {
 // Hook de autenticação CORRIGIDO
 app.addHook('onRequest', async (request, reply) => {
   try {
+
+    if (request.url === '/carrinho/count-items-on-card' && request.method === 'GET') {
+    console.log('📊 Rota pública especial: count-items-on-card');
+    return; // Sai do hook sem fazer nada
+  }
+
     if (request.method === 'HEAD' || request.url === '/' || request.url === '/health') {
       return;
     }
@@ -163,15 +169,6 @@ app.addHook('onRequest', async (request, reply) => {
     const isPublicRoute = publicRoutes.some(route =>
       request.method === route.method && request.url.startsWith(route.path.replace(':id', ''))
     );
-
-    // 🔍 LOG DE DEBUG
-    console.log('🔍 [AUTH HOOK]', {
-      method: request.method,
-      url: request.url,
-      isPublic: isPublicRoute,
-      hasAuthHeader: !!request.headers.authorization,
-      origin: request.headers.origin
-    });
 
     if (isPublicRoute) {
       console.log('✅ Rota pública, ignorando autenticação:', request.url);
