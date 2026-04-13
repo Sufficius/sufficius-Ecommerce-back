@@ -20,6 +20,7 @@ import { join } from "path";
 import uploadRoutes from "./modules/upload/upload";
 import estoqueRoutes from "./modules/estoque/estoque.routes";
 import { prisma } from "./lib/prisma";
+import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
 
 dotenv.config();
 
@@ -48,6 +49,9 @@ const app = Fastify({
   disableRequestLogging: false,
 });
 
+app.setValidatorCompiler(validatorCompiler);
+app.setSerializerCompiler(serializerCompiler);
+
 // CORS MANUAL
 const allowedOrigins = [
   'https://sufficius-ecommerce.vercel.app',
@@ -59,14 +63,14 @@ const allowedOrigins = [
 
 app.addHook('onRequest', (request, reply, done) => {
   const origin = request.headers.origin;
-  if (request.method === 'OPTIONS') {
+  if (request.method === 'OPTION') {
     if (origin && allowedOrigins.includes(origin)) {
       reply.header('Access-Control-Allow-Origin', origin);
       reply.header('Access-Control-Allow-Credentials', 'true');
     } else if (process.env.NODE_ENV === 'development') {
       reply.header('Access-Control-Allow-Origin', origin || '*');
     }
-    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTION');
     reply.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Access-Token, X-API-Key, Content-Type, Authorization');
     reply.header('Access-Control-Allow-Credentials', 'true');
     reply.header('Access-Control-Max-Age', '86400');
