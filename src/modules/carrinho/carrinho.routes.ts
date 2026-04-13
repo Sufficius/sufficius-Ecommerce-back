@@ -522,7 +522,6 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['produtoId', 'quantidade'],
           properties: {
-            userId: { type: 'string' },
             produtoId: { type: 'string' },
             quantidade: { type: 'number', minimum: 1 }
           }
