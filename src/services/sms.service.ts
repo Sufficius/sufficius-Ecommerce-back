@@ -4,7 +4,7 @@ import axios from 'axios';
 export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ success: boolean; error?: string }> => {
   // Limpar número (apenas dígitos)
   let numeroLimpo = telefone.replace(/\D/g, '');
-  
+
   // Remover código do país se tiver
   if (numeroLimpo.startsWith('244')) {
     numeroLimpo = numeroLimpo.substring(3);
@@ -19,9 +19,9 @@ export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ s
     params.append('api_key_app', process.env.SMS_API_KEY || '');
     params.append('phone_number', numeroLimpo);
     params.append('message_body', mensagem);
-      params.append('sender', 'SUFFICIUS');
+    params.append('sender_id', 'SUFFICIUS');
 
-    const response = await axios.get(url, { 
+    const response = await axios.get(url, {
       params,
       headers: {
         'Accept': 'application/json'
@@ -30,7 +30,7 @@ export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ s
     });
 
     console.log('📦 Resposta TelcoSMS:', response.data);
-    
+
     if (response.data && response.data.status === 200) {
       console.log(' SMS enviado com sucesso!');
       return { success: true };
@@ -38,12 +38,12 @@ export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ s
       console.log('❌ Falha no envio:', response.data);
       return { success: false, error: response.data?.message || 'Erro desconhecido' };
     }
-    
+
   } catch (error: any) {
     console.error('❌ Erro ao enviar SMS:', error.response?.data || error.message);
-    return { 
-      success: false, 
-      error: error.response?.data?.message || error.message 
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message
     };
   }
 };
