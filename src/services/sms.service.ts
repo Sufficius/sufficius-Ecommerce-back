@@ -65,7 +65,7 @@ export const gerarMensagemAprovacao = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `✅ PEDIDO APROVADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} no valor de ${totalFormatado} foi aprovado. Será processado em breve. Obrigado! - Sufficius`;
+  return `PEDIDO APROVADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} no valor de ${totalFormatado} foi aprovado. Será processado em breve. Obrigado! - Sufficius`;
 };
 
 export const gerarMensagemEnviado = (pedido: any): string => {
@@ -74,7 +74,7 @@ export const gerarMensagemEnviado = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `📦 PEDIDO ENVIADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi enviado. Acompanhe o código de rastreio em breve. - Sufficius`;
+  return `PEDIDO ENVIADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi enviado. Acompanhe o código de rastreio em breve. - Sufficius`;
 };
 
 export const gerarMensagemEntregue = (pedido: any): string => {
@@ -83,7 +83,7 @@ export const gerarMensagemEntregue = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `🎉 PEDIDO ENTREGUE, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi entregue com sucesso. Agradecemos pela compra! - Sufficius`;
+  return `PEDIDO ENTREGUE, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi entregue com sucesso. Agradecemos pela compra! - Sufficius`;
 };
 
 export const gerarMensagemCancelamento = (pedido: any, motivo: string): string => {
@@ -92,7 +92,7 @@ export const gerarMensagemCancelamento = (pedido: any, motivo: string): string =
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `❌ PEDIDO CANCELADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi cancelado. Motivo: ${motivo}. Dúvidas? Fale conosco. - Sufficius`;
+  return `PEDIDO CANCELADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi cancelado. Motivo: ${motivo}. Dúvidas? Fale conosco. - Sufficius`;
 };
 
 export const gerarMensagemProcessando = (pedido: any): string => {
@@ -101,5 +101,5 @@ export const gerarMensagemProcessando = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `🔄 PEDIDO EM PROCESSAMENTO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) está sendo processado. Em breve será enviado. Obrigado! - Sufficius`;
+  return `PEDIDO EM PROCESSAMENTO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) está sendo processado. Em breve será enviado. Obrigado! - Sufficius`;
 };
