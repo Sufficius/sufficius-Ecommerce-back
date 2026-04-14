@@ -26,7 +26,7 @@ export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ s
     params.append('api_key_app', process.env.SMS_API_KEY || '');
     params.append('phone_number', numeroLimpo);
     params.append('message_body', mensagem);
-    params.append('sender', 'SUFFICIUS'); // ✅ CORRETO: 'sender' não 'sender_id'
+    params.append('from', 'SUFFICIUS'); // ✅ CORRETO: 'sender' não 'sender_id'
 
     const response = await axios.get(url, {
       params,
