@@ -10,8 +10,15 @@ export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ s
     numeroLimpo = numeroLimpo.substring(3);
   }
 
+  // Garantir que o número tem 9 dígitos (Angola)
+  if (numeroLimpo.length !== 9) {
+    console.error(`❌ Número inválido: ${numeroLimpo} (deve ter 9 dígitos)`);
+    return { success: false, error: 'Número de telefone inválido' };
+  }
+
   console.log(`📱 Enviando SMS para: ${numeroLimpo}`);
   console.log(`📝 Mensagem: ${mensagem.substring(0, 100)}...`);
+  console.log(`🔑 API Key: ${process.env.SMS_API_KEY?.substring(0, 10)}...`);
 
   try {
     const url = `https://www.telcosms.co.ao/api/v2/send_message`;
@@ -19,7 +26,7 @@ export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ s
     params.append('api_key_app', process.env.SMS_API_KEY || '');
     params.append('phone_number', numeroLimpo);
     params.append('message_body', mensagem);
-    params.append('sender_id', 'SUFFICIUS');
+    params.append('sender', 'SUFFICIUS'); // ✅ CORRETO: 'sender' não 'sender_id'
 
     const response = await axios.get(url, {
       params,
@@ -32,7 +39,7 @@ export const enviarSMS = async (telefone: string, mensagem: string): Promise<{ s
     console.log('📦 Resposta TelcoSMS:', response.data);
 
     if (response.data && response.data.status === 200) {
-      console.log(' SMS enviado com sucesso!');
+      console.log('✅ SMS enviado com sucesso!');
       return { success: true };
     } else {
       console.log('❌ Falha no envio:', response.data);
@@ -58,11 +65,7 @@ export const gerarMensagemAprovacao = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `PEDIDO APROVADO!
-
-Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi APROVADO no valor de ${totalFormatado}.
-
-Seu pedido será processado em breve. Obrigado pela preferência!`;
+  return `✅ PEDIDO APROVADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} no valor de ${totalFormatado} foi aprovado. Será processado em breve. Obrigado! - Sufficius`;
 };
 
 export const gerarMensagemEnviado = (pedido: any): string => {
@@ -71,14 +74,7 @@ export const gerarMensagemEnviado = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `PEDIDO ENVIADO!
-
-Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi ENVIADO.
-
-Valor: ${totalFormatado}
-Acompanhe o código de rastreio em breve.
-
-Obrigado pela preferência!`;
+  return `📦 PEDIDO ENVIADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi enviado. Acompanhe o código de rastreio em breve. - Sufficius`;
 };
 
 export const gerarMensagemEntregue = (pedido: any): string => {
@@ -87,12 +83,7 @@ export const gerarMensagemEntregue = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `PEDIDO ENTREGUE!
-
-Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi ENTREGUE com sucesso.
-
-Valor: ${totalFormatado}
-Agradecemos pela sua compra! Volte sempre.`;
+  return `🎉 PEDIDO ENTREGUE, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi entregue com sucesso. Agradecemos pela compra! - Sufficius`;
 };
 
 export const gerarMensagemCancelamento = (pedido: any, motivo: string): string => {
@@ -101,14 +92,7 @@ export const gerarMensagemCancelamento = (pedido: any, motivo: string): string =
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `PEDIDO CANCELADO
-
-Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} foi CANCELADO.
-
-Motivo: ${motivo}
-Valor: ${totalFormatado}
-
-Em caso de dúvidas, entre em contato conosco.`;
+  return `❌ PEDIDO CANCELADO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) foi cancelado. Motivo: ${motivo}. Dúvidas? Fale conosco. - Sufficius`;
 };
 
 export const gerarMensagemProcessando = (pedido: any): string => {
@@ -117,10 +101,5 @@ export const gerarMensagemProcessando = (pedido: any): string => {
     currency: 'AOA'
   }).format(pedido.total);
 
-  return `PEDIDO EM PROCESSAMENTO
-
-Olá ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} está sendo PROCESSADO.
-
-Valor: ${totalFormatado}
-Em breve seu pedido será enviado. Obrigado!`;
+  return `🔄 PEDIDO EM PROCESSAMENTO, ${pedido.usuario?.nome || 'Cliente'}! Seu pedido #${pedido.numeroPedido} (${totalFormatado}) está sendo processado. Em breve será enviado. Obrigado! - Sufficius`;
 };
