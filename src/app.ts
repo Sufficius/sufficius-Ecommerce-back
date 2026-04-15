@@ -1,10 +1,8 @@
-// src/app.ts - CORS e Autenticação CORRIGIDOS (Versão Final)
 import Fastify from "fastify";
 import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import * as dotenv from 'dotenv';
 import fastifyStatic from "@fastify/static";
-
 import authRoutes from "./modules/auth/auth.routes";
 import usuarioRoutes from "./modules/usuarios/usuarios.routes";
 import vendasRoutes from "./modules/vendas/vendas.routes";
@@ -13,7 +11,6 @@ import pedidosRoutes from "./modules/pedidos/pedidos.routes";
 import categoriasRoutes from "./modules/categorias/categorias.routes";
 import pagamentosRoutes from "./modules/pagamentos/pagamentos.routes";
 import enderecosRoutes from "./modules/enderecos/enderecos.routes";
-// import avaliacoesRoutes from "./modules/avaliacoes/avaliacoes.routes";
 import carrinhoRoutes from "./modules/carrinho/carrinho.routes";
 import itemcarrinhoRoutes from "./modules/itemcarrinho/itemcarrinho.route";
 import { join } from "path";
@@ -48,9 +45,7 @@ const app = Fastify({
   disableRequestLogging: false,
 });
 
-// ============================================
-// CONFIGURAÇÃO DE CORS
-// ============================================
+
 const allowedOrigins = [
   'https://sufficius-ecommerce.vercel.app',
   'http://localhost:5173',
@@ -58,7 +53,6 @@ const allowedOrigins = [
   'http://localhost:8080',
 ];
 
-// JWT Plugin
 app.register(jwt, {
   secret: process.env.JWT_SECRET,
   sign: { expiresIn: '7d' }
@@ -77,7 +71,6 @@ app.register(multipart, {
   },
 });
 
-// Tipagem para o request com autenticação
 declare module 'fastify' {
   interface FastifyRequest {
     usuario?: {
@@ -89,53 +82,42 @@ declare module 'fastify' {
   }
 }
 
-// ============================================
-// HOOK ÚNICO PARA CORS E AUTENTICAÇÃO
-// ============================================
+
 app.addHook('onRequest', async (request, reply) => {
   const origin = request.headers.origin;
   
-  // ===== PARTE 1: CONFIGURAR CORS PARA TODAS AS REQUISIÇÕES =====
   if (origin && allowedOrigins.includes(origin)) {
     reply.header('Access-Control-Allow-Origin', origin);
     reply.header('Access-Control-Allow-Credentials', 'true');
   } else if (process.env.NODE_ENV === 'development' && origin) {
     reply.header('Access-Control-Allow-Origin', origin);
   }
-
-  // ===== PARTE 2: TRATAR OPTIONS (PREFLIGHT) IMEDIATAMENTE =====
   if (request.method === 'OPTIONS') {
     reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Access-Token, X-API-Key');
     reply.header('Access-Control-Max-Age', '86400');
     reply.status(204).send();
-    return; // IMPORTANTE: Não executa autenticação
+    return; 
   }
 
-  // ===== PARTE 3: ROTAS QUE NÃO PRECISAM DE AUTENTICAÇÃO =====
   const publicRoutePatterns = [
-    // Auth
     { method: 'POST', pattern: /^\/usuarios\/login$/ },
     { method: 'POST', pattern: /^\/auth\/login$/ },
     { method: 'POST', pattern: /^\/auth\/register$/ },
     { method: 'POST', pattern: /^\/auth\/google$/ },
     
-    // Health e Debug
     { method: 'GET', pattern: /^\/health$/ },
     { method: 'GET', pattern: /^\/$/ },
     { method: 'HEAD', pattern: /^\/$/ },
     { method: 'GET', pattern: /^\/debug\/auth$/ },
     
-    // Produtos e Categorias (públicos)
     { method: 'GET', pattern: /^\/produtos$/ },
     { method: 'GET', pattern: /^\/produtos\/get$/ },
-    { method: 'GET', pattern: /^\/produtos\/[^/]+$/ }, // GET /produtos/:id
+    { method: 'GET', pattern: /^\/produtos\/[^/]+$/ }, 
     { method: 'GET', pattern: /^\/categorias$/ },
     { method: 'GET', pattern: /^\/pedidos$/ },
     
-    // Carrinho (operações básicas são públicas, mas precisam de token para dados do usuário)
     { method: 'GET', pattern: /^\/carrinho\/count-items-on-card$/ },
-    // { method: 'POST', pattern: /^\/carrinho\/item$/ },
     { method: 'GET', pattern: /^\/carrinho$/ },
     { method: 'DELETE', pattern: /^\/carrinho\/item\/[^/]+$/ },
     { method: 'PUT', pattern: /^\/carrinho\/item\/[^/]+$/ },
@@ -153,11 +135,9 @@ app.addHook('onRequest', async (request, reply) => {
     origin: request.headers.origin
   });
 
-  // ===== PARTE 4: SE FOR ROTA PÚBLICA, PERMITIR ACESSO =====
   if (isPublicRoute) {
     console.log('✅ Rota pública, ignorando autenticação:', request.url);
     
-    // Tratamento especial: count-items-on-card sem token retorna 0
     if (request.url === '/carrinho/count-items-on-card' && request.method === 'GET') {
       const authHeader = request.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -167,10 +147,9 @@ app.addHook('onRequest', async (request, reply) => {
       }
     }
     
-    return; // Permite acesso sem autenticação
+    return; 
   }
 
-  // ===== PARTE 5: ROTAS PROTEGIDAS - VERIFICAR TOKEN =====
   const authHeader = request.headers.authorization;
 
   if (!authHeader) {
@@ -229,13 +208,9 @@ app.addHook('onRequest', async (request, reply) => {
   }
 });
 
-// ============================================
-// HOOK onSend PARA HEADERS ADICIONAIS
-// ============================================
 app.addHook('onSend', (request, reply, payload, done) => {
   const origin = request.headers.origin;
   
-  // Reaplicar CORS se necessário (segurança adicional)
   if (origin && allowedOrigins.includes(origin)) {
     reply.header('Access-Control-Allow-Origin', origin);
     reply.header('Access-Control-Allow-Credentials', 'true');
@@ -243,7 +218,6 @@ app.addHook('onSend', (request, reply, payload, done) => {
     reply.header('Access-Control-Allow-Origin', origin);
   }
   
-  // Headers de segurança
   reply.header('Access-Control-Expose-Headers', 'Content-Length, X-Total-Count, Authorization');
   reply.header('X-Content-Type-Options', 'nosniff');
   reply.header('X-Frame-Options', 'DENY');
@@ -252,9 +226,7 @@ app.addHook('onSend', (request, reply, payload, done) => {
   done();
 });
 
-// ============================================
-// ROTAS BÁSICAS
-// ============================================
+
 app.get('/health', async () => ({
   status: 'ok',
   timestamp: new Date().toISOString(),
@@ -273,7 +245,6 @@ app.get('/', async () => ({
   }
 }));
 
-// Rota de debug para verificar autenticação
 app.get('/debug/auth', async (request, reply) => {
   try {
     const authHeader = request.headers.authorization;
@@ -315,9 +286,7 @@ app.get('/debug/auth', async (request, reply) => {
   }
 });
 
-// ============================================
-// REGISTRAR ROTAS PRINCIPAIS
-// ============================================
+
 app.register(authRoutes, { prefix: `/auth` });
 app.register(usuarioRoutes, { prefix: `/usuarios` });
 app.register(vendasRoutes, { prefix: `/vendas` });
@@ -331,13 +300,10 @@ app.register(carrinhoRoutes, { prefix: `/carrinho` });
 app.register(itemcarrinhoRoutes, { prefix: `/itemcarrinho` });
 app.register(uploadRoutes, { prefix: `/upload` });
 
-// ============================================
-// ERROR HANDLER
-// ============================================
+
 app.setErrorHandler(function (error: any, request, reply) {
   console.error('❌ Error:', error);
   
-  // Se for erro de autenticação JWT
   if (error.code === 'FST_JWT_NO_AUTHORIZATION_IN_HEADER') {
     return reply.status(401).send({
       success: false,
@@ -352,9 +318,6 @@ app.setErrorHandler(function (error: any, request, reply) {
   });
 });
 
-// ============================================
-// GRACEFUL SHUTDOWN
-// ============================================
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, closing server...')
   await app.close()
