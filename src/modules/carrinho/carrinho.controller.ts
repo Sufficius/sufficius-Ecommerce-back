@@ -9,7 +9,25 @@ export class CarrinhoController {
     try {
       const usuario = request.user as any;
 
-      if(!usuario || !usuario.id) {
+      if(!usuario) {
+        console.log('⚠️  Usuário não autenticado, retornando carrinho vazio');
+        return reply.send({
+          success: true,
+          data:{
+            id: '',
+            usuarioId: '',
+            criadoEm: new Date().toISOString(),
+            atualizadoEm: new Date().toISOString(),
+            itens: [],
+            totalItens: 0,
+            desconto: 0,
+            total: 0
+          }
+        });
+      }
+
+      if(!usuario.id) {
+        console.log('⚠️  Usuário sem ID, retornando carrinho vazio');
         return reply.send({
           success: true,
           data:{
@@ -534,8 +552,15 @@ export class CarrinhoController {
 
       const usuario = request.user as any;
 
-      if(!usuario || !usuario.id) {
+      if(!usuario) {
         console.log('⚠️  Usuário autenticado, retornando 0 itens');
+        return reply.code(200).send({
+          totalItens: 0,
+        });
+      }
+
+      if(!usuario.id) {
+        console.log('⚠️  Usuário sem ID, retornando 0 itens');
         return reply.code(200).send({
           totalItens: 0,
         });
