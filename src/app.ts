@@ -135,7 +135,7 @@ app.addHook('onRequest', async (request, reply) => {
     
     // Carrinho (operações básicas são públicas, mas precisam de token para dados do usuário)
     { method: 'GET', pattern: /^\/carrinho\/count-items-on-card$/ },
-    { method: 'POST', pattern: /^\/carrinho\/item$/ },
+    // { method: 'POST', pattern: /^\/carrinho\/item$/ },
     { method: 'GET', pattern: /^\/carrinho$/ },
     { method: 'DELETE', pattern: /^\/carrinho\/item\/[^/]+$/ },
     { method: 'PUT', pattern: /^\/carrinho\/item\/[^/]+$/ },
