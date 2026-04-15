@@ -146,7 +146,6 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
 
   app.get('/count-items-on-card',
     {
-      preHandler: [authenticate],
       schema: {
         response: {
           200: {
@@ -171,7 +170,6 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
   app.get<ObterCarrinhoRoute>(
     '/',
     {
-      preHandler: [authenticate],
       schema: {
         response: {
           200: {
@@ -237,7 +235,9 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
   };
 
   // ROTA DE CHECKOUT CORRIGIDA
-  app.post('/checkout', async (request, reply) => {
+  app.post('/checkout',
+    {preHandler: [authenticate]},
+    async (request, reply) => {
     try {
       console.log("📦 Iniciando checkout...");
     
