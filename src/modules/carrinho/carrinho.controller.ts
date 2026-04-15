@@ -9,6 +9,22 @@ export class CarrinhoController {
     try {
       const usuario = request.user as any;
 
+      if(!usuario || !usuario.id) {
+        return reply.send({
+          success: true,
+          data:{
+            id: '',
+            usuarioId: '',
+            criadoEm: new Date().toISOString(),
+            atualizadoEm: new Date().toISOString(),
+            itens: [],
+            totalItens: 0,
+            desconto: 0,
+            total: 0
+          }
+        });
+      }
+
       // Buscar carrinho
       const carrinho = await prisma.carrinho.findFirst({
         where: { usuarioId: usuario.id },
