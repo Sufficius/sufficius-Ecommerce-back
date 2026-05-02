@@ -9,11 +9,11 @@ export class CarrinhoController {
     try {
       const usuario = request.user as any;
 
-      if(!usuario) {
+      if (!usuario) {
         console.log('⚠️  Usuário não autenticado, retornando carrinho vazio');
         return reply.send({
           success: true,
-          data:{
+          data: {
             id: '',
             usuarioId: '',
             criadoEm: new Date().toISOString(),
@@ -26,11 +26,11 @@ export class CarrinhoController {
         });
       }
 
-      if(!usuario.id) {
+      if (!usuario.id) {
         console.log('⚠️  Usuário sem ID, retornando carrinho vazio');
         return reply.send({
           success: true,
-          data:{
+          data: {
             id: '',
             usuarioId: '',
             criadoEm: new Date().toISOString(),
@@ -197,12 +197,12 @@ export class CarrinhoController {
       const { produtoId, quantidade } = request.body;
 
 
-        if (!usuario || !usuario.id) {
-      return reply.status(401).send({
-        success: false,
-        message: 'Usuário não autenticado'
-      });
-    }
+      if (!usuario || !usuario.id) {
+        return reply.status(401).send({
+          success: false,
+          message: 'Usuário não autenticado'
+        });
+      }
 
       // Validações
       if (!produtoId) {
@@ -546,20 +546,20 @@ export class CarrinhoController {
 
   async countItemsOnCart(request: FastifyRequest, reply: FastifyReply) {
     console.log('🔍 [countItemsOnCart] Iniciando...');
-  console.log('   Usuário no request:', request.user ? 'EXISTE' : 'NÃO EXISTE');
-  console.log('   Headers:', request.headers.authorization ? 'Com token' : 'Sem token');
+    console.log('   Usuário no request:', request.user ? 'EXISTE' : 'NÃO EXISTE');
+    console.log('   Headers:', request.headers.authorization ? 'Com token' : 'Sem token');
     try {
 
       const usuario = request.user as any;
 
-      if(!usuario) {
-        console.log('⚠️  Usuário autenticado, retornando 0 itens');
+      if (!usuario) {
+        console.log('⚠️  Usuário não autenticado, retornando 0 itens');
         return reply.code(200).send({
           totalItens: 0,
         });
       }
 
-      if(!usuario.id) {
+      if (!usuario.id) {
         console.log('⚠️  Usuário sem ID, retornando 0 itens');
         return reply.code(200).send({
           totalItens: 0,
@@ -572,13 +572,15 @@ export class CarrinhoController {
       });
 
       if (!cart) {
+        console.log('ℹ️  Carrinho não encontrado para o usuário, retornando 0 itens');
         return reply.code(200).send({
           totalItens: 0,
         });
       }
 
       const itemCount = cart.ItemCarrinho.reduce((sum, item) => sum + item.quantidade, 0);
-
+      console.log(`✅ Itens no carrinho: ${itemCount}`);
+      
       reply.send({
         totalItens: itemCount,
       });

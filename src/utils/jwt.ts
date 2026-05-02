@@ -187,7 +187,6 @@ export function verifyToken(
     let errorCode = 'VERIFICATION_FAILED';
     let errorMessage = 'Token inválido';
 
-    // Identificar tipo específico de erro
     if (error instanceof jwt.TokenExpiredError) {
       errorCode = 'TOKEN_EXPIRED';
       errorMessage = 'Token expirado';
@@ -207,7 +206,6 @@ export function verifyToken(
   }
 }
 
-// Gera um token de refresh
 export function generateRefreshToken(
   payload: TokenPayload,
   secret: string = JWT_SECRET || 'segredo_dev_sufficius_altere_em_producao'
@@ -244,7 +242,6 @@ export function generateRefreshToken(
   }
 }
 
-// Verifica um token de refresh
 export function verifyRefreshToken(
   token: string,
   secret: string = JWT_SECRET || 'segredo_dev_sufficius_altere_em_producao'
@@ -252,7 +249,6 @@ export function verifyRefreshToken(
   try {
     const decoded = verifyToken(token, secret);
     
-    // Verifica se é um refresh token
     if (!(decoded as any).isRefreshToken) {
       throw new TokenError('Token não é um refresh token', 'NOT_REFRESH_TOKEN');
     }
@@ -272,16 +268,13 @@ export function verifyRefreshToken(
   }
 }
 
-// Renova um token usando refresh token
 export function refreshAccessToken(
   refreshToken: string,
   secret: string = JWT_SECRET || 'segredo_dev_sufficius_altere_em_producao'
 ): { accessToken: string; refreshToken: string } {
   try {
-    // Verifica o refresh token
     const decoded = verifyRefreshToken(refreshToken, secret);
     
-    // Gera novo access token
     const accessToken = generateToken(
       {
         id: decoded.id,
@@ -289,11 +282,10 @@ export function refreshAccessToken(
         nome: decoded.nome,
         tipo: decoded.tipo
       },
-      '15m', // Access tokens mais curtos
+      '15m', 
       secret
     );
 
-    // Gera novo refresh token (opcional - rotacionar)
     const newRefreshToken = generateRefreshToken(
       {
         id: decoded.id,
@@ -324,7 +316,6 @@ export function refreshAccessToken(
   }
 }
 
-// Decodifica token sem verificar (apenas para visualização)
 export function decodeToken(token: string): DecodedToken | null {
   try {
     const cleanToken = token.replace(/^Bearer\s+/i, '');
@@ -342,7 +333,6 @@ export function decodeToken(token: string): DecodedToken | null {
   }
 }
 
-// Utilitário para extrair token do header
 export function extractTokenFromHeader(authHeader?: string): string | null {
   if (!authHeader) {
     return null;
@@ -352,7 +342,6 @@ export function extractTokenFromHeader(authHeader?: string): string | null {
   return match ? match[1] : null;
 }
 
-// Verifica se token está prestes a expirar (útil para refresh proativo)
 export function isTokenAboutToExpire(token: string, thresholdMinutes: number = 5): boolean {
   try {
     const decoded = decodeToken(token);
@@ -361,7 +350,7 @@ export function isTokenAboutToExpire(token: string, thresholdMinutes: number = 5
       return true;
     }
 
-    const expirationTime = decoded.exp * 1000; // Convert to milliseconds
+    const expirationTime = decoded.exp * 1000;
     const currentTime = Date.now();
     const thresholdMs = thresholdMinutes * 60 * 1000;
 
@@ -372,5 +361,4 @@ export function isTokenAboutToExpire(token: string, thresholdMinutes: number = 5
   }
 }
 
-// Exporta o JWT para uso direto se necessário
 export { jwt };

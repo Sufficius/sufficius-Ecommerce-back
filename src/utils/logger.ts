@@ -2,7 +2,6 @@ import pino from 'pino';
 
 const isDevelopment = process.env.NODE_ENV === 'development';
 
-// Configuração do logger
 export const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
   transport: isDevelopment ? {
@@ -35,11 +34,9 @@ export const logger = pino({
       service: bindings.service
     })
   },
-  // Formato correto para mensagens
   messageKey: 'msg'
 });
 
-// Métodos auxiliares para compatibilidade
 export const logWithContext = (context: string) => ({
   info: (data: any, message?: string) => 
     logger.info({ ...data, context }, message),
@@ -51,7 +48,6 @@ export const logWithContext = (context: string) => ({
     logger.debug({ ...data, context }, message)
 });
 
-// Shorthands para uso comum
 export const log = {
   info: (message: string, data?: any) => 
     logger.info(data || {}, message),

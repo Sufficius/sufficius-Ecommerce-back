@@ -135,20 +135,41 @@ app.addHook('onRequest', async (request, reply) => {
     origin: request.headers.origin
   });
 
-  if (isPublicRoute) {
-    console.log('✅ Rota pública, ignorando autenticação:', request.url);
-    
-    if (request.url === '/carrinho/count-items-on-card' && request.method === 'GET') {
-      const authHeader = request.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        console.log('⚠️ Sem token para count-items-on-card, retornando 0');
-        reply.status(200).send({ totalItens: 0 });
-        return;
-      }
+ if (isPublicRoute) {
+  console.log('✅ Rota pública:', request.url);
+  
+  // ⚡ Tenta extrair o token mesmo em rota pública
+  const authHeader = request.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.replace('Bearer ', '');
+      const decoded = await request.jwtVerify<{ 
+        id: string; 
+        email: string; 
+        tipo: string; 
+        fotoUrl?: string 
+      }>();
+      
+      request.user = {
+        id: decoded.id,
+        email: decoded.email,
+        tipo: decoded.tipo,
+        fotoUrl: decoded.fotoUrl
+      };
+      
+      console.log('✅ Usuário opcional autenticado:', {
+        id: decoded.id,
+        email: decoded.email,
+        url: request.url
+      });
+    } catch (jwtError) {
+      // Token inválido/expirado, mas rota é pública - OK
+      console.log('⚠️ Token opcional inválido:', request.url);
     }
-    
-    return; 
   }
+  
+  return; // Continua para o handler
+}
 
   const authHeader = request.headers.authorization;
 

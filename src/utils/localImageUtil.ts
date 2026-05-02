@@ -1,13 +1,10 @@
-// src/utils/localImageUtils.ts
 import path from 'path';
 import fs from 'fs/promises';
 import { randomUUID } from 'crypto';
 
-// Configurações
 const UPLOADS_DIR = process.env.UPLOADS_DIR || 'public/uploads';
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
-// Tipos
 interface ImageOptions {
   width?: number;
   height?: number;
@@ -15,7 +12,6 @@ interface ImageOptions {
   format?: 'webp' | 'jpeg' | 'png';
 }
 
-// Garantir que o diretório de uploads existe
 export async function ensureUploadsDir() {
   try {
     await fs.access(UPLOADS_DIR);
@@ -24,25 +20,20 @@ export async function ensureUploadsDir() {
   }
 }
 
-// Gerar URL da imagem
 export function getImageUrl(
   filename: string | null | undefined,
   options: ImageOptions = {}
 ): string | null {
   if (!filename) return null;
 
-  // Se já for uma URL completa, retornar como está
   if (filename.startsWith('http')) {
     return filename;
   }
 
-  // Remover "/public" do caminho se existir
   const cleanFilename = filename.replace(/^public\//, '');
 
-  // Construir URL base
   let url = `${BASE_URL}/${cleanFilename}`;
 
-  // Adicionar query parameters para transformações (opcional)
   const params = new URLSearchParams();
   if (options.width) params.append('w', options.width.toString());
   if (options.height) params.append('h', options.height.toString());
@@ -57,13 +48,11 @@ export function getImageUrl(
   return url;
 }
 
-// Versão simplificada
 export function getLocalImageUrl(filename: string | null): string | null {
   if (!filename) return null;
 
-  // Casos comuns
   if (filename.startsWith('http')) {
-    return filename; // URL externa
+    return filename; 
   }
 
   if (filename.startsWith('uploads/')) {
@@ -74,16 +63,13 @@ export function getLocalImageUrl(filename: string | null): string | null {
     return `${BASE_URL}${filename}`;
   }
 
-  // Se for apenas o nome do arquivo
   if (!filename.includes('/')) {
     return `${BASE_URL}/uploads/${filename}`;
   }
 
-  // Default
   return `${BASE_URL}/${filename.replace(/^\//, '')}`;
 }
 
-// Salvar imagem no sistema de arquivos
 export async function saveImage(
   file: File | Buffer,
   originalFilename?: string
@@ -104,7 +90,6 @@ export async function saveImage(
   return `/uploads/${filename}`;
 }
 
-// Deletar imagem
 export async function deleteImage(filename: string): Promise<boolean> {
   try {
     const filepath = path.join(UPLOADS_DIR, filename.replace(/^\/uploads\//, ''));
@@ -116,7 +101,6 @@ export async function deleteImage(filename: string): Promise<boolean> {
   }
 }
 
-// Obter múltiplos tamanhos
 export function getImageUrls(filename: string | null) {
   if (!filename) return null;
 
@@ -128,7 +112,6 @@ export function getImageUrls(filename: string | null) {
   };
 }
 
-// Fallback image
 export function getFallbackImage(): string {
   const fallbackImages = [
     '/uploads/fallback-product-1.jpg',
@@ -136,7 +119,6 @@ export function getFallbackImage(): string {
     '/uploads/fallback-product-3.jpg',
   ];
 
-  // Você pode carregar estas imagens estáticas na pasta public/uploads
   const randomIndex = Math.floor(Math.random() * fallbackImages.length);
   return `${BASE_URL}${fallbackImages[randomIndex]}`;
 }
