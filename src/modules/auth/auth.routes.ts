@@ -1347,8 +1347,6 @@ export default async function authRoutes(app: FastifyInstance) {
         expiresIn: "7d"
       });
 
-      console.log("✅ Login bem-sucedido para:", user.email);
-
       reply.send({
         success: true,
         message: "Login realizado com sucesso",
