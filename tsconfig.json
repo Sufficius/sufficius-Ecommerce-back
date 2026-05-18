@@ -17,8 +17,8 @@
       "@utils/*": ["utils/*"],
       "@services/*": ["services/*"],
       "@modules/*": ["modules/*"]
-    },
-    "ignoreDeprecations": "6.0"
+    }
+    // "ignoreDeprecations": "6.0"  <-- Remove this line
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

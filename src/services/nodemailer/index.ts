@@ -1,4 +1,267 @@
+import { prisma } from '../../lib/prisma';
 import * as nodemailer from 'nodemailer';
+import webpush from 'web-push';
+
+interface NotificationOptions {
+  userId: string;
+  title: string;
+  message: string;
+  type: 'PEDIDO_STATUS' | 'PAGAMENTO' | 'PROMOCAO' | 'SISTEMA';
+  data?: Record<string, any>;
+}
+
+class NotificationService {
+  private emailTransporter: any;
+  private isEmailConfigured: boolean = false;
+  private isPushConfigured: boolean = false;
+
+  constructor() {
+    this.setupEmail();
+    this.setupPushNotifications();
+  }
+
+  // Configurar Email
+  private setupEmail() {
+    if (process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      this.emailTransporter = nodemailer.createTransport({
+        host: process.env.EMAIL_HOST,
+        port: parseInt(process.env.EMAIL_PORT || '587'),
+        secure: process.env.EMAIL_SECURE === 'true',
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+      });
+      this.isEmailConfigured = true;
+      console.log('📧 Serviço de email configurado');
+    } else {
+      console.log('⚠️ Serviço de email não configurado - variáveis de ambiente ausentes');
+    }
+  }
+
+  // Configurar Web Push
+  private setupPushNotifications() {
+    const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+    const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+
+    if (vapidPublicKey && vapidPrivateKey) {
+      webpush.setVapidDetails(
+        'mailto:suporte@sufficius.com',
+        vapidPublicKey,
+        vapidPrivateKey
+      );
+      this.isPushConfigured = true;
+      console.log('🔔 Serviço de push notification configurado');
+    } else {
+      console.log('⚠️ Serviço de push notification não configurado - chaves VAPID ausentes');
+    }
+  }
+
+  // Enviar notificação por email
+  async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+    if (!this.isEmailConfigured) {
+      console.log('❌ Email não configurado');
+      return false;
+    }
+
+    try {
+      await this.emailTransporter.sendMail({
+        from: `"Sufficius" <${process.env.EMAIL_USER}>`,
+        to,
+        subject,
+        html,
+      });
+      console.log(`✅ Email enviado para: ${to}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Erro ao enviar email:', error);
+      return false;
+    }
+  }
+
+  // Enviar push notification
+  async sendPushNotification(userId: string, title: string, body: string): Promise<boolean> {
+    if (!this.isPushConfigured) {
+      console.log('❌ Push notification não configurado');
+      return false;
+    }
+
+    try {
+      // Buscar todas as subscriptions do usuário
+      const subscriptions = await prisma.pushSubscription.findMany({
+        where: { userId }
+      });
+
+      if (subscriptions.length === 0) {
+        console.log(`⚠️ Nenhuma push subscription encontrada para o usuário ${userId}`);
+        return false;
+      }
+
+      const payload = JSON.stringify({
+        title,
+        body,
+        icon: '/icon-192x192.png',
+        badge: '/badge-72x72.png',
+        data: {
+          url: '/pedidos'
+        }
+      });
+
+      // Enviar para todas as subscriptions do usuário
+      const sendPromises = subscriptions.map(subscription => {
+        const pushSubscription = {
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: subscription.p256dh,
+            auth: subscription.auth,
+          },
+        };
+
+        return webpush.sendNotification(pushSubscription, payload);
+      });
+
+      await Promise.all(sendPromises);
+      console.log(`✅ Push notification enviada para ${subscriptions.length} dispositivos`);
+      return true;
+    } catch (error) {
+      console.error('❌ Erro ao enviar push notification:', error);
+      return false;
+    }
+  }
+
+  // Template de email para status do pedido
+  private getPedidoStatusEmail(pedido: any, status: string): string {
+    const statusMessages: Record<string, string> = {
+      'PAGAMENTO_PENDENTE': 'Aguardando confirmação de pagamento',
+      'AGUARDANDO_CONFIRMACAO': 'Pagamento em análise',
+      'APROVADO': 'Pagamento aprovado! Seu pedido será processado em breve.',
+      'PROCESSANDO': 'Seu pedido está sendo preparado',
+      'CONFIRMADO': 'Pedido confirmado e em separação',
+      'ENVIADO': 'Seu pedido foi enviado!',
+      'ENTREGUE': 'Pedido entregue com sucesso!',
+      'CANCELADO': 'Pedido cancelado',
+    };
+
+    const statusColor: Record<string, string> = {
+      'APROVADO': '#4CAF50',
+      'PROCESSANDO': '#2196F3',
+      'ENVIADO': '#FF9800',
+      'ENTREGUE': '#4CAF50',
+      'CANCELADO': '#F44336',
+      'PAGAMENTO_PENDENTE': '#FF9800',
+    };
+
+    const color = statusColor[status] || '#2196F3';
+    const statusMessage = statusMessages[status] || 'Status atualizado';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: ${color}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background: #f9f9f9; padding: 20px; border: 1px solid #ddd; }
+          .pedido-info { background: white; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          .status-badge { display: inline-block; background: ${color}; color: white; padding: 5px 15px; border-radius: 20px; }
+          .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+          .btn { display: inline-block; background: ${color}; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-top: 15px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Sufficius</h1>
+            <p>Atualização do seu pedido</p>
+          </div>
+          <div class="content">
+            <p>Olá, <strong>${pedido.usuario?.nome || 'Cliente'}</strong>!</p>
+            <p>${statusMessage}</p>
+            
+            <div class="pedido-info">
+              <p><strong>Pedido:</strong> #${pedido.numeroPedido}</p>
+              <p><strong>Status:</strong> <span class="status-badge">${status}</span></p>
+              <p><strong>Total:</strong> ${pedido.total.toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' })}</p>
+              <p><strong>Data:</strong> ${new Date(pedido.atualizadoEm).toLocaleString('pt-AO')}</p>
+            </div>
+
+            ${pedido.metodoPagamento === 'TRANSFERENCIA_BANCARIA' ? `
+            <div style="background: #FFF3E0; padding: 15px; border-radius: 5px; margin: 15px 0;">
+              <p><strong>📸 Comprovativo enviado com sucesso!</strong></p>
+              <p>Nossa equipe está verificando o pagamento. Isso pode levar até 24 horas úteis.</p>
+            </div>
+            ` : ''}
+
+            <a href="${process.env.FRONTEND_URL}/pedidos/${pedido.id}" class="btn">
+              Acompanhar Pedido
+            </a>
+          </div>
+          <div class="footer">
+            <p>Este é um email automático. Por favor, não responda.</p>
+            <p>© 2024 Sufficius. Todos os direitos reservados.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Enviar notificação completa (todos os canais)
+  async sendNotification(options: NotificationOptions): Promise<{
+    sms: boolean;
+    email: boolean;
+    push: boolean;
+  }> {
+    const results = {
+      sms: false,
+      email: false,
+      push: false,
+    };
+
+    try {
+      // Buscar dados do usuário
+      const usuario = await prisma.usuario.findUnique({
+        where: { id: options.userId },
+        select: { email: true, telefone: true, nome: true }
+      });
+
+      if (!usuario) {
+        console.log('❌ Usuário não encontrado para notificação');
+        return results;
+      }
+
+      // 1. Tentar Push Notification (mais rápido e barato)
+      results.push = await this.sendPushNotification(
+        options.userId,
+        options.title,
+        options.message
+      );
+
+      // 2. Tentar Email
+      if (usuario.email && options.type === 'PEDIDO_STATUS') {
+        const emailHtml = this.getPedidoStatusEmail(options.data, options.data?.status);
+        results.email = await this.sendEmail(
+          usuario.email,
+          `Atualização do Pedido #${options.data?.numeroPedido}`,
+          emailHtml
+        );
+      }
+
+      // 3. SMS como último recurso (custa dinheiro)
+      // O SMS já é enviado pelo serviço existente
+
+      console.log('📊 Resultados das notificações:', results);
+      return results;
+    } catch (error) {
+      console.error('❌ Erro ao enviar notificações:', error);
+      return results;
+    }
+  }
+}
+
+export const notificationService = new NotificationService();
 
 export async function sendResetCodeEmail(to: string, code: string) {
   try {

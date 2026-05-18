@@ -399,11 +399,7 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
       });
 
       if (!endereco) {
-         console.log("❌ Endereço não encontrado");
-        return reply.status(400).send({
-          success: false,
-          message: "Endereço do usuário não encontrado"
-        });
+         console.log(" Endereço não encontrado para o usuário, mas continuando com o checkout");    
       }
 
       const total = cart.ItemCarrinho.reduce((sum, item) =>
@@ -440,7 +436,6 @@ export default async function carrinhoRoutes(app: FastifyInstance) {
           id: randomUUID(),
           numeroPedido: `${Math.floor(Math.random() * 10000)}${Date.now()}`,
           usuarioId: userId,
-          enderecoId: endereco.id,
           status: "PAGAMENTO_PENDENTE",
           frete: 0,
           desconto: 0,

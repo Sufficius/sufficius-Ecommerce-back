@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -30,6 +30,7 @@ model Usuario {
   Pedido    Pedido[]
   Pagamento Pagamento[]
   Reembolso Reembolso[]
+  PushSubscription PushSubscription[]
 }
 
 model Endereco {
@@ -136,7 +137,7 @@ model Pedido {
   id           String       @id @default(uuid())
   numeroPedido String       @unique
   usuarioId    String
-  enderecoId   String
+  enderecoId   String?
   status       StatusPedido @default(PAGAMENTO_PENDENTE)
 
   frete    Float
@@ -161,7 +162,7 @@ model Pedido {
 
   // Relações
   usuario         Usuario           @relation(fields: [usuarioId], references: [id])
-  endereco        Endereco          @relation(fields: [enderecoId], references: [id])
+  endereco        Endereco?          @relation(fields: [enderecoId], references: [id])
   ItemPedido      ItemPedido[]
   HistoricoPedido HistoricoPedido[]
   Pagamento       Pagamento[]
@@ -198,6 +199,20 @@ model HistoricoPedido {
   pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
 
   @@index([pedidoId])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  criadoEm  DateTime @default(now())
+
+  usuario Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // TABELA: Pagamento
