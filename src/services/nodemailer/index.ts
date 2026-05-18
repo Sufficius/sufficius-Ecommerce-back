@@ -193,10 +193,6 @@ class NotificationService {
               <p>Nossa equipe está verificando o pagamento. Isso pode levar até 24 horas úteis.</p>
             </div>
             ` : ''}
-
-            <a href="${process.env.FRONTEND_URL}/pedidos/${pedido.id}" class="btn">
-              Acompanhar Pedido
-            </a>
           </div>
           <div class="footer">
             <p>Este é um email automático. Por favor, não responda.</p>
