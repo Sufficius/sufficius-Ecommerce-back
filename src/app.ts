@@ -17,6 +17,7 @@ import { join } from "path";
 import uploadRoutes from "./modules/upload/upload";
 import estoqueRoutes from "./modules/estoque/estoque.routes";
 import { prisma } from "./lib/prisma";
+import notificationRoutes from "./modules/notifications/notification.routes";
 
 dotenv.config();
 
@@ -320,7 +321,7 @@ app.register(estoqueRoutes, { prefix: `/estoque` });
 app.register(carrinhoRoutes, { prefix: `/carrinho` });
 app.register(itemcarrinhoRoutes, { prefix: `/itemcarrinho` });
 app.register(uploadRoutes, { prefix: `/upload` });
-
+app.register(notificationRoutes, { prefix: `/notifications` });
 
 app.setErrorHandler(function (error: any, request, reply) {
   console.error('❌ Error:', error);
