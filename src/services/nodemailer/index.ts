@@ -200,7 +200,7 @@ class NotificationService {
           </div>
           <div class="footer">
             <p>Este é um email automático. Por favor, não responda.</p>
-            <p>© 2024 Sufficius. Todos os direitos reservados.</p>
+            <p>© 2026 Sufficius. Todos os direitos reservados.</p>
           </div>
         </div>
       </body>

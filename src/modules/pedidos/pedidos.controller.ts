@@ -3,6 +3,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { randomUUID } from 'crypto';
 import { enviarSMS, gerarMensagemAprovacao, gerarMensagemCancelamento, gerarMensagemEntregue, gerarMensagemEnviado, gerarMensagemProcessando } from '../../services/sms.service';
+import { notificationService } from '../../services/nodemailer';
 
 export class PedidosController {
     async meusPedidos(
@@ -530,187 +531,205 @@ export class PedidosController {
         }
     }
 
-    async atualizarStatus(
-        request: FastifyRequest<{
-            Params: { id: string };
-            Body: {
-                status: string;
-                motivoCancelamento?: string;
-            }
-        }>,
-        reply: FastifyReply
-    ) {
-        try {
-            const { id } = request.params;
-            const { status, motivoCancelamento } = request.body as any;
+   async atualizarStatus(
+    request: FastifyRequest<{
+        Params: { id: string };
+        Body: {
+            status: string;
+            motivoCancelamento?: string;
+        }
+    }>,
+    reply: FastifyReply
+) {
+    try {
+        const { id } = request.params;
+        const { status, motivoCancelamento } = request.body as any;
 
-            console.log("📝 Atualizando status:", { id, status, motivoCancelamento });
+        console.log("📝 Atualizando status:", { id, status, motivoCancelamento });
 
-            // Verificar se pedido existe
-            const pedido = await prisma.pedido.findUnique({
-                where: { id },
-                include: {
-                    usuario: {
-                        select: {
-                            id: true,
-                            nome: true,
-                            email: true,
-                            telefone: true
-                        }
+        // Verificar se pedido existe
+        const pedido = await prisma.pedido.findUnique({
+            where: { id },
+            include: {
+                usuario: {
+                    select: {
+                        id: true,
+                        nome: true,
+                        email: true,
+                        telefone: true
                     }
                 }
-            });
-
-            if (!pedido) {
-                return reply.status(404).send({
-                    success: false,
-                    message: 'Pedido não encontrado'
-                });
             }
+        });
 
-            console.log("✅ Pedido encontrado:", pedido.id, "Status atual:", pedido.status);
-
-            // Validar transição de status
-            const statusValidos = [
-                'PAGAMENTO_PENDENTE',
-                'AGUARDANDO_CONFIRMACAO',
-                'AGUARDANDO_PAGAMENTO',
-                'PROCESSANDO',
-                'ENVIADO',
-                'ENTREGUE',
-                'CANCELADO',
-                'APROVADO'
-            ];
-
-            if (!statusValidos.includes(status)) {
-                return reply.status(400).send({
-                    success: false,
-                    message: `Status inválido: ${status}`
-                });
-            }
-
-            // Atualizar pedido
-            const pedidoAtualizado = await prisma.pedido.update({
-                where: { id },
-                data: {
-                    status,
-                    ...(status === 'CANCELADO' && motivoCancelamento && { observacoes: motivoCancelamento })
-                }
-            });
-
-            let smsEnviado = false;
-
-            // ENVIAR SMS QUANDO APROVAR
-            if (status === "APROVADO" && pedido.usuario?.telefone) {
-                console.log(`📱 Enviando SMS para ${pedido.usuario.telefone}...`);
-
-                const mensagem = gerarMensagemAprovacao(pedido);
-
-                console.log(`Mensagem a enviar: ${mensagem}`);
-
-                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
-
-                if (resultadoSMS.success) {
-                    console.log("✅ SMS de aprovação enviado com sucesso!");
-                    smsEnviado = true;
-                } else {
-                    console.error("❌ Erro ao enviar SMS:", resultadoSMS.error);
-                    smsEnviado = false;
-                }
-            }
-
-
-            if (status === "ENTREGUE" && pedido.usuario?.telefone) {
-                console.log(`📱 Enviando SMS de entrega para ${pedido.usuario.telefone}...`);
-
-                const mensagem = gerarMensagemEntregue(pedido);
-
-                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
-
-                if (resultadoSMS.success) {
-                    console.log("✅ SMS de entrega enviado com sucesso!");
-                    smsEnviado = true;
-                } else {
-                    console.error("❌ Erro ao enviar SMS de entrega:", resultadoSMS.error);
-                }
-            }
-
-            // ENVIAR SMS QUANDO MUDAR PARA ENVIADO
-            if (status === "ENVIADO" && pedido.usuario?.telefone) {
-                console.log(`📱 Enviando SMS de envio para ${pedido.usuario.telefone}...`);
-
-                const mensagem = gerarMensagemEnviado(pedido);
-
-                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
-
-                if (resultadoSMS.success) {
-                    console.log("✅ SMS de envio enviado com sucesso!");
-                    smsEnviado = true;
-                } else {
-                    console.error("❌ Erro ao enviar SMS de envio:", resultadoSMS.error);
-                }
-            }
-
-            if (status === "PROCESSANDO" && pedido.usuario?.telefone) {
-                const mensagem = gerarMensagemProcessando(pedido);
-                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
-                if (resultadoSMS.success) smsEnviado = true;
-            }
-
-            // ENVIAR SMS QUANDO CANCELAR
-            if (status === 'CANCELADO' && pedido.usuario?.telefone && motivoCancelamento) {
-                console.log(`📱 Enviando SMS de cancelamento para ${pedido.usuario.telefone}...`);
-
-                const mensagem = gerarMensagemCancelamento(pedido, motivoCancelamento);
-
-                const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
-
-                if (resultadoSMS.success) {
-                    console.log("✅ SMS de cancelamento enviado com sucesso!");
-                    smsEnviado = true;
-                } else {
-                    console.error("❌ Erro ao enviar SMS de cancelamento:", resultadoSMS.error);
-                }
-            }
-
-            // Registrar histórico
-            try {
-                const historico = await prisma.historicoPedido.create({
-                    data: {
-                        id: randomUUID(),
-                        pedidoId: id,
-                        status: status,
-                    }
-                });
-                console.log("✅ Histórico registrado:", historico.id);
-            } catch (historyError: any) {
-                console.error("❌ Erro ao criar histórico:", {
-                    message: historyError.message,
-                    code: historyError.code,
-                    meta: historyError.meta
-                });
-                // Não falha a operação principal
-            }
-
-            console.log("✅ Status atualizado com sucesso:", pedidoAtualizado.status);
-
-            // ÚNICO reply.send
-            return reply.send({
-                success: true,
-                message: 'Status do pedido atualizado com sucesso',
-                data: pedidoAtualizado,
-                smsEnviado
-            });
-
-        } catch (error) {
-            console.error('❌ Erro ao atualizar status:', error);
-            return reply.status(500).send({
+        if (!pedido) {
+            return reply.status(404).send({
                 success: false,
-                message: 'Erro ao atualizar status do pedido',
-                error: error instanceof Error ? error.message : String(error)
+                message: 'Pedido não encontrado'
             });
         }
+
+        console.log("✅ Pedido encontrado:", pedido.id, "Status atual:", pedido.status);
+
+        // Validar transição de status
+        const statusValidos = [
+            'PAGAMENTO_PENDENTE',
+            'AGUARDANDO_CONFIRMACAO',
+            'AGUARDANDO_PAGAMENTO',
+            'PROCESSANDO',
+            'ENVIADO',
+            'ENTREGUE',
+            'CANCELADO',
+            'APROVADO'
+        ];
+
+        if (!statusValidos.includes(status)) {
+            return reply.status(400).send({
+                success: false,
+                message: `Status inválido: ${status}`
+            });
+        }
+
+        // Atualizar pedido
+        const pedidoAtualizado = await prisma.pedido.update({
+            where: { id },
+            data: {
+                status,
+                ...(status === 'CANCELADO' && motivoCancelamento && { observacoes: motivoCancelamento })
+            },
+            include: {
+                usuario: {
+                    select: {
+                        id: true,
+                        nome: true,
+                        email: true,
+                        telefone: true
+                    }
+                }
+            }
+        });
+
+        // 🆕 SISTEMA DE NOTIFICAÇÕES UNIFICADO
+        let mensagem = '';
+        let titulo = '';
+
+        // Definir mensagem baseada no status
+        switch (status) {
+            case 'APROVADO':
+                titulo = 'Pedido Aprovado';
+                mensagem = gerarMensagemAprovacao(pedido);
+                break;
+            case 'PROCESSANDO':
+                titulo = 'Pedido em Processamento';
+                mensagem = gerarMensagemProcessando(pedido);
+                break;
+            case 'ENVIADO':
+                titulo = 'Pedido Enviado';
+                mensagem = gerarMensagemEnviado(pedido);
+                break;
+            case 'ENTREGUE':
+                titulo = 'Pedido Entregue';
+                mensagem = gerarMensagemEntregue(pedido);
+                break;
+            case 'CANCELADO':
+                titulo = 'Pedido Cancelado';
+                mensagem = gerarMensagemCancelamento(pedido, motivoCancelamento);
+                break;
+            default:
+                titulo = 'Status Atualizado';
+                mensagem = `Seu pedido #${pedido.numeroPedido} foi atualizado para: ${status}`;
+        }
+
+        // 🎯 Tentar enviar notificações (Email + Push + SMS)
+        let emailEnviado = false;
+        let pushEnviado = false;
+        let smsEnviado = false;
+
+        if (pedido.usuario?.id && mensagem) {
+            try {
+                // 1️⃣ PRIMEIRO: Tentar Email (mais confiável e detalhado)
+                console.log('📧 Tentando enviar email...');
+                const notificationResults = await notificationService.sendNotification({
+                    userId: pedido.usuario.id,
+                    title: titulo,
+                    message: mensagem,
+                    type: 'PEDIDO_STATUS',
+                    data: pedidoAtualizado
+                });
+                
+                emailEnviado = notificationResults.email;
+                pushEnviado = notificationResults.push;
+                
+                console.log('📊 Resultados Email/Push:', { email: emailEnviado, push: pushEnviado });
+
+                // 2️⃣ SEGUNDO: Tentar SMS (apenas se email OU push NÃO foram enviados)
+                if (!emailEnviado && !pushEnviado && pedido.usuario?.telefone) {
+                    console.log(`📱 Email/Push falharam, tentando SMS para ${pedido.usuario.telefone}...`);
+                    const resultadoSMS = await enviarSMS(pedido.usuario.telefone, mensagem);
+
+                    if (resultadoSMS.success) {
+                        console.log("✅ SMS enviado com sucesso!");
+                        smsEnviado = true;
+                    } else {
+                        console.error("❌ SMS também falhou:", resultadoSMS.error);
+                    }
+                } else if (pedido.usuario?.telefone) {
+                    // Email ou Push funcionou, mas também enviar SMS se quiser (opcional)
+                    console.log('✅ Email/Push enviado, SMS não necessário (economizando créditos)');
+                }
+            } catch (notifError) {
+                console.error('❌ Erro no sistema de notificações:', notifError);
+            }
+        }
+
+        // Registrar histórico
+        try {
+            const historico = await prisma.historicoPedido.create({
+                data: {
+                    id: randomUUID(),
+                    pedidoId: id,
+                    status: status,
+                    observacao: motivoCancelamento || null
+                }
+            });
+            console.log("✅ Histórico registrado:", historico.id);
+        } catch (historyError: any) {
+            console.error("❌ Erro ao criar histórico:", {
+                message: historyError.message,
+                code: historyError.code,
+                meta: historyError.meta
+            });
+            // Não falha a operação principal
+        }
+
+        console.log("✅ Status atualizado com sucesso:", pedidoAtualizado.status);
+        console.log('📊 Resumo notificações:', { 
+            email: emailEnviado ? '✅' : '❌', 
+            push: pushEnviado ? '✅' : '❌', 
+            sms: smsEnviado ? '✅' : '❌' 
+        });
+
+        // Resposta final
+        return reply.send({
+            success: true,
+            message: 'Status do pedido atualizado com sucesso',
+            data: pedidoAtualizado,
+            notificacoes: {
+                email: emailEnviado,
+                push: pushEnviado,
+                sms: smsEnviado
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao atualizar status:', error);
+        return reply.status(500).send({
+            success: false,
+            message: 'Erro ao atualizar status do pedido',
+            error: error instanceof Error ? error.message : String(error)
+        });
     }
+}
 
     async getEstatisticas(
         request: FastifyRequest<{
